@@ -18,6 +18,7 @@ interface Button { label: string; action: Action; fg: string }
 const SPINNER = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏']
 const GRAY = '#8a8a8a'
 const QUEUE = '#bf8700'
+const BUTTON_BG: Record<string, string> = {cyan: '#00d7d7', green: '#5fd75f', red: '#ff5f5f'}
 const LINE = {truncate: true, wrapMode: 'none'} as const
 
 function ago(iso: string): string {
@@ -102,7 +103,7 @@ const Card = memo(function Card({pr, index, width, tab, busy, onAction}: {pr: PR
 			<box flexDirection="row">
 				{buttons.map((b, i) => (
 					<box key={b.action} marginLeft={i > 0 ? 2 : 0} onMouseDown={() => onAction(pr, b.action)}>
-						<text fg={b.fg} attributes={TextAttributes.INVERSE}>{b.label}</text>
+						<text fg="#000000" bg={BUTTON_BG[b.fg]} attributes={TextAttributes.BOLD}>{b.label}</text>
 					</box>
 				))}
 				{busy ? <text fg={busy.startsWith('✓') ? 'green' : busy.startsWith('✗') ? 'red' : 'yellow'}>  {busy}</text> : null}
@@ -251,8 +252,8 @@ export function Tui({repos, interval}: {repos: string[]; interval: number}) {
 	return (
 		<box flexDirection="column" width={cols} height={rows}>
 			<box flexDirection="row">
-				<box onMouseDown={() => switchTab('mine')}><text fg="blue" attributes={tab === 'mine' ? TextAttributes.INVERSE : 0}>{tabLabel('mine')}</text></box>
-				<box marginLeft={2} onMouseDown={() => switchTab('review')}><text fg="magenta" attributes={tab === 'review' ? TextAttributes.INVERSE : 0}>{tabLabel('review')}</text></box>
+				<box onMouseDown={() => switchTab('mine')}><text fg={tab === 'mine' ? '#ffffff' : '#5fafff'} bg={tab === 'mine' ? '#005fd7' : undefined} attributes={TextAttributes.BOLD}>{tabLabel('mine')}</text></box>
+				<box marginLeft={2} onMouseDown={() => switchTab('review')}><text fg={tab === 'review' ? '#ffffff' : '#d75fd7'} bg={tab === 'review' ? '#8700af' : undefined} attributes={TextAttributes.BOLD}>{tabLabel('review')}</text></box>
 			</box>
 			<box border borderStyle="rounded" borderColor="blue" paddingLeft={1} paddingRight={1} height={3}>
 				<text {...LINE}>
