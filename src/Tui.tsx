@@ -79,12 +79,12 @@ const Card = memo(function Card({pr, index, width, tab, busy, onAction}: {pr: PR
 		<box flexDirection="column" border borderStyle="rounded" borderColor={color} width={width} height={CARD_H} paddingLeft={1} paddingRight={1}>
 			<text {...LINE}>
 				<span fg={color}>{glyph} </span>
-				<span attributes={TextAttributes.BOLD}>{pr.repo.split('/')[1]}#{pr.number}</span>
+				<span attributes={TextAttributes.BOLD}><a href={pr.url}>{pr.title}</a></span>
+				<span fg={GRAY}>  #{pr.number}</span>
 				{pr.isDraft ? <span fg={GRAY}> draft</span> : null}
 				{index <= 9 ? <span fg={GRAY}>  [{index}]</span> : null}
 				{tab === 'review' ? <span fg="magenta">  {pr.author}</span> : null}
 			</text>
-			<text {...LINE} attributes={TextAttributes.BOLD}><a href={pr.url}>{pr.title}</a></text>
 			<text {...LINE}>
 				<span fg={color}>{queueLabel(pr) ?? text}</span>
 				{pr.mergeable === 'CONFLICTING' ? <span fg="red"> · conflicts</span> : null}
@@ -95,6 +95,7 @@ const Card = memo(function Card({pr, index, width, tab, busy, onAction}: {pr: PR
 				{pr.approvals.length > 0 ? <span fg="green"> · ✓ {pr.approvals.join(', ')}</span> : <span fg={GRAY}> · no approvals</span>}
 			</text>
 			<text {...LINE}><span fg={AMBER}>teams </span>{pr.pendingTeams.length ? pr.pendingTeams.map(t => t.replace(/^.*\//, '')).join('  ') : <span fg={GRAY}>none</span>}</text>
+			<text {...LINE}><span fg={AMBER}>users </span>{pr.pendingUsers.length ? pr.pendingUsers.join('  ') : <span fg={GRAY}>none</span>}</text>
 			<box flexDirection="row">
 				{buttons.map((b, i) => (
 					<box key={b.action} marginLeft={i > 0 ? 1 : 0} onMouseDown={() => onAction(pr, b.action)}>
