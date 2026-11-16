@@ -8,7 +8,7 @@ import {copy, nudgeMessage} from './nudge'
 const GAP = 2
 const MIN_CARD = 64
 const MAX_CARD = 110
-const CARD_H = 12
+const CARD_H = 8
 const CHROME_H = 1 + 3 + 3
 
 type Tab = 'mine' | 'review'
@@ -84,23 +84,18 @@ const Card = memo(function Card({pr, index, width, tab, busy, onAction}: {pr: PR
 				{index <= 9 ? <span fg={GRAY}>  [{index}]</span> : null}
 				{tab === 'review' ? <span fg="magenta">  {pr.author}</span> : null}
 			</text>
-			<text {...LINE} attributes={TextAttributes.BOLD}>{pr.title}</text>
-			<text {...LINE} fg={GRAY}><a href={pr.url}>{pr.url}</a></text>
-			<text fg={color}>{'─'.repeat(Math.max(0, width - 4))}</text>
+			<text {...LINE} attributes={TextAttributes.BOLD}><a href={pr.url}>{pr.title}</a></text>
 			<text {...LINE}>
 				<span fg={color}>{queueLabel(pr) ?? text}</span>
 				{pr.mergeable === 'CONFLICTING' ? <span fg="red"> · conflicts</span> : null}
-				{!queueLabel(pr) && pr.autoMerge ? <span fg="green"> · auto-merge on</span> : null}
+				{!queueLabel(pr) && pr.autoMerge ? <span fg="green"> · auto-merge</span> : null}
+				{pr.unresolved.length > 0 ? <span fg="red"> · ✎ {pr.unresolved.length} unresolved</span> : null}
+				{pr.changesRequested.length > 0 ? <span fg="red"> · changes requested</span> : null}
 				<span fg={GRAY}> · {ago(pr.updatedAt)}</span>
 				{pr.approvals.length > 0 ? <span fg="green"> · ✓ {pr.approvals.join(', ')}</span> : <span fg={GRAY}> · no approvals</span>}
 			</text>
-			<text {...LINE}><span fg={AMBER}>teams: </span>{pr.pendingTeams.length ? pr.pendingTeams.map(t => t.replace(/^.*\//, '')).join('  ') : <span fg={GRAY}>none</span>}</text>
-			<text {...LINE}><span fg={AMBER}>users: </span>{pr.pendingUsers.length ? pr.pendingUsers.join('  ') : <span fg={GRAY}>none</span>}</text>
-			{pr.unresolved.length > 0
-				? <text {...LINE}><span fg="red">✎ {pr.unresolved.length} unresolved: </span>{pr.unresolved.map(t => `${t.path.split('/').pop()} (${t.by})`).join(', ')}</text>
-				: pr.changesRequested.length > 0
-					? <text {...LINE} fg="red">✎ changes requested by {pr.changesRequested.join(', ')}</text>
-					: <text> </text>}
+			<text {...LINE}><span fg={AMBER}>teams </span>{pr.pendingTeams.length ? pr.pendingTeams.map(t => t.replace(/^.*\//, '')).join('  ') : <span fg={GRAY}>none</span>}</text>
+			<text {...LINE}><span fg={AMBER}>users </span>{pr.pendingUsers.length ? pr.pendingUsers.join('  ') : <span fg={GRAY}>none</span>}</text>
 			<box flexDirection="row">
 				{buttons.map((b, i) => (
 					<box key={b.action} marginLeft={i > 0 ? 2 : 0} onMouseDown={() => onAction(pr, b.action)}>
@@ -271,7 +266,7 @@ export function Tui({repos, interval}: {repos: string[]; interval: number}) {
 			{retryAt ? <text fg={AMBER} {...LINE}>GitHub rate limit hit · retrying at {new Date(retryAt).toTimeString().slice(0, 8)}</text> : error ? <text fg="red" {...LINE}>{error}</text> : null}
 			<box flexDirection="column" flexGrow={1}>
 				{cardRows.map((row, ri) => (
-					<box key={ri} flexDirection="row" marginTop={1}>
+					<box key={ri} flexDirection="row" marginTop={ri === 0 ? 0 : 1}>
 						{row.map((pr, ci) => (
 							<box key={pr.url} marginLeft={ci > 0 ? GAP : 0}>
 								<Card pr={pr} index={ri * layout.n + ci + 1} width={layout.w} tab={tab} busy={busy[pr.url]} onAction={act} />
