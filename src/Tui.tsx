@@ -17,6 +17,7 @@ interface Button { label: string; action: Action; fg: string }
 
 const SPINNER = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏']
 const GRAY = '#8a8a8a'
+const QUEUE = '#bf8700'
 const LINE = {truncate: true, wrapMode: 'none'} as const
 
 function ago(iso: string): string {
@@ -28,7 +29,7 @@ function ago(iso: string): string {
 
 function cardColor(pr: PR): string {
 	if (pr.queue?.state === 'UNMERGEABLE') return 'red'
-	if (pr.inMergeQueue) return 'green'
+	if (pr.inMergeQueue) return QUEUE
 	if (pr.unresolved.length > 0 || pr.mergeable === 'CONFLICTING' || pr.ci === 'FAILURE' || pr.ci === 'ERROR') return 'red'
 	if (pr.ci === 'PENDING' || pr.ci === 'EXPECTED') return 'yellow'
 	if (pr.ci === 'SUCCESS') return 'green'
