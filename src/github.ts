@@ -46,32 +46,45 @@ const teamCache = new Map<string, string[]>()
 export async function getTeams(org: string): Promise<string[]> {
 	const cached = teamCache.get(org)
 	if (cached) return cached
+	const disk = await readDiskCache()
+	const hit = disk[`teams:${org}`]
+	if (hit && Date.now() - hit.at < DISK_CACHE_TTL) {
+		teamCache.set(org, hit.members)
+		return hit.members
+	}
 	const r = await $`gh api user/teams --paginate --jq ${`[.[]|select(.organization.login=="${org}")|.slug]`}`.quiet().nothrow()
 	let slugs: string[] = []
 	if (r.exitCode === 0) {
 		for (const line of r.stdout.toString().trim().split('\n')) {
 			try { slugs = slugs.concat(JSON.parse(line) as string[]) } catch { /* ignore */ }
 		}
+		await writeDiskCache(`teams:${org}`, slugs)
 	}
 	teamCache.set(org, slugs)
 	return slugs
 }
 
-const memberCache = new Map<string, Set<string>>()
-const MEMBER_CACHE_FILE = `${process.env.HOME}/.cache/prs/team-members.json`
-const MEMBER_CACHE_TTL = 24 * 3600 * 1000
-let memberCacheDisk: Promise<Record<string, {at: number; members: string[]}>> | undefined
-function readMemberCache() {
-	memberCacheDisk ??= Bun.file(MEMBER_CACHE_FILE).json().catch(() => ({}))
-	return memberCacheDisk
+const DISK_CACHE_FILE = `${process.env.HOME}/.cache/prs/github.json`
+const DISK_CACHE_TTL = 24 * 3600 * 1000
+type DiskCache = Record<string, {at: number; members: string[]}>
+let diskCache: Promise<DiskCache> | undefined
+function readDiskCache(): Promise<DiskCache> {
+	diskCache ??= Bun.file(DISK_CACHE_FILE).json().catch(() => ({}))
+	return diskCache
 }
+async function writeDiskCache(key: string, members: string[]): Promise<void> {
+	const disk = await readDiskCache()
+	disk[key] = {at: Date.now(), members}
+	await Bun.write(DISK_CACHE_FILE, JSON.stringify(disk)).catch(() => undefined)
+}
+
+const memberCache = new Map<string, Set<string>>()
 export async function getTeamMembers(org: string, slug: string): Promise<Set<string>> {
 	const key = `${org}/${slug}`
 	const cached = memberCache.get(key)
 	if (cached) return cached
-	const disk = await readMemberCache()
-	const hit = disk[key]
-	if (hit && Date.now() - hit.at < MEMBER_CACHE_TTL) {
+	const hit = (await readDiskCache())[key]
+	if (hit && Date.now() - hit.at < DISK_CACHE_TTL) {
 		const set = new Set(hit.members)
 		memberCache.set(key, set)
 		return set
@@ -79,10 +92,7 @@ export async function getTeamMembers(org: string, slug: string): Promise<Set<str
 	const r = await $`gh api orgs/${org}/teams/${slug}/members --paginate --jq '.[].login'`.quiet().nothrow()
 	const members = new Set(r.exitCode === 0 ? r.stdout.toString().split('\n').map(l => l.trim()).filter(Boolean) : [])
 	memberCache.set(key, members)
-	if (r.exitCode === 0) {
-		disk[key] = {at: Date.now(), members: [...members]}
-		await Bun.write(MEMBER_CACHE_FILE, JSON.stringify(disk)).catch(() => undefined)
-	}
+	if (r.exitCode === 0) await writeDiskCache(key, [...members])
 	return members
 }
 
@@ -115,10 +125,7 @@ const QUERY = `query($q:String!,$after:String){
       number title url isDraft mergeable updatedAt body additions deletions
       author{login}
       repository{nameWithOwner}
-      commits(last:1){nodes{commit{statusCheckRollup{state contexts(first:100){nodes{
-        ... on CheckRun{conclusion detailsUrl}
-        ... on StatusContext{state targetUrl}
-      }}}}}}
+      commits(last:1){nodes{commit{statusCheckRollup{state}}}}
       reviewRequests(first:20){nodes{requestedReviewer{__typename ... on Team{slug} ... on User{login}}}}
       latestReviews(first:30){nodes{author{login} state}}
       reviewThreads(first:100){nodes{isResolved path comments(first:1){nodes{author{login}}}}}
@@ -138,7 +145,7 @@ type Node = {
 	deletions: number
 	author: {login: string} | null
 	repository: {nameWithOwner: string}
-	commits: {nodes: {commit: {statusCheckRollup: {state: PR['ci']; contexts: {nodes: ({conclusion?: string; detailsUrl?: string} | {state?: string; targetUrl?: string})[]}} | null}}[]}
+	commits: {nodes: {commit: {statusCheckRollup: {state: PR['ci']} | null}}[]}
 	reviewRequests: {nodes: {requestedReviewer: {__typename: string; slug?: string; login?: string} | null}[]}
 	latestReviews: {nodes: {author: {login: string}; state: string}[]}
 	reviewThreads: {nodes: {isResolved: boolean; path: string; comments: {nodes: {author: {login: string}}[]}}[]}
@@ -152,13 +159,6 @@ async function search(q: string, me: string): Promise<PR[]> {
 		for (const n of data.search.nodes) {
 			if (!n.number) continue
 			const rollup = n.commits.nodes[0]?.commit.statusCheckRollup
-			const failedRuns = new Set<string>()
-			for (const c of rollup?.contexts.nodes ?? []) {
-				const failed = 'conclusion' in c ? c.conclusion === 'FAILURE' : c.state === 'FAILURE' || c.state === 'ERROR'
-				const url = ('detailsUrl' in c ? c.detailsUrl : c.targetUrl) ?? ''
-				const m = failed ? url.match(/\/runs\/(\d+)\//) : null
-				if (m) failedRuns.add(m[1])
-			}
 			out.push({
 				repo: n.repository.nameWithOwner,
 				number: n.number,
@@ -176,7 +176,7 @@ async function search(q: string, me: string): Promise<PR[]> {
 				pendingTeams: n.reviewRequests.nodes.flatMap(r => (r.requestedReviewer?.__typename === 'Team' ? [r.requestedReviewer.slug!] : [])),
 				pendingUsers: n.reviewRequests.nodes.flatMap(r => (r.requestedReviewer?.__typename === 'User' ? [r.requestedReviewer.login!] : [])),
 				unresolved: n.reviewThreads.nodes.filter(t => !t.isResolved).map(t => ({path: t.path, by: t.comments.nodes[0]?.author.login ?? '?'})),
-				failedRuns: [...failedRuns],
+				failedRuns: [],
 				author: n.author?.login ?? '?',
 				myReview: n.latestReviews.nodes.find(r => r.author.login === me)?.state ?? null,
 			})
@@ -184,7 +184,32 @@ async function search(q: string, me: string): Promise<PR[]> {
 		if (!data.search.pageInfo.hasNextPage) break
 		after = data.search.pageInfo.endCursor
 	}
+	await loadFailedRuns(out)
 	return out
+}
+
+type ContextNode = {conclusion?: string; detailsUrl?: string; state?: string; targetUrl?: string}
+type FailedRunsData = {repository: Record<string, {commits: {nodes: {commit: {statusCheckRollup: {contexts: {nodes: ContextNode[]}} | null}}[]}} | null>}
+
+async function loadFailedRuns(prs: PR[]): Promise<void> {
+	const red = prs.filter(p => p.ci === 'FAILURE' || p.ci === 'ERROR')
+	const byRepo = Map.groupBy(red, p => p.repo)
+	await Promise.all([...byRepo].map(async ([repo, list]) => {
+		const [owner, name] = repo.split('/')
+		const fields = list.map(p => `p${p.number}:pullRequest(number:${p.number}){commits(last:1){nodes{commit{statusCheckRollup{contexts(first:100){nodes{... on CheckRun{conclusion detailsUrl} ... on StatusContext{state targetUrl}}}}}}}}`).join(' ')
+		const data = await graphql<FailedRunsData>(`query{repository(owner:"${owner}",name:"${name}"){${fields}}}`, {}).catch(() => null)
+		for (const pr of list) {
+			const contexts = data?.repository[`p${pr.number}`]?.commits.nodes[0]?.commit.statusCheckRollup?.contexts.nodes ?? []
+			const runs = new Set<string>()
+			for (const c of contexts) {
+				const failed = c.conclusion === 'FAILURE' || c.state === 'FAILURE' || c.state === 'ERROR'
+				const url = c.detailsUrl ?? c.targetUrl ?? ''
+				const m = failed ? url.match(/\/runs\/(\d+)\//) : null
+				if (m) runs.add(m[1])
+			}
+			pr.failedRuns = [...runs]
+		}
+	}))
 }
 
 const base = (repos: string[]) => ['is:pr', 'is:open', 'archived:false', ...repos.map(r => `repo:${r}`)]

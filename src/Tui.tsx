@@ -92,7 +92,7 @@ const Card = memo(function Card({pr, index, width, tab, busy, onAction}: {pr: PR
 						<text fg={b.fg} attributes={TextAttributes.INVERSE}>{b.label}</text>
 					</box>
 				))}
-				{busy ? <text fg="yellow">  {busy}</text> : null}
+				{busy ? <text fg={busy.startsWith('✓') ? 'green' : busy.startsWith('✗') ? 'red' : 'yellow'}>  {busy}</text> : null}
 			</box>
 		</box>
 	)
@@ -157,7 +157,12 @@ export function Tui({repos, interval}: {repos: string[]; interval: number}) {
 
 	const act = useCallback(async (pr: PR, action: Action) => {
 		const key = pr.url
-		if (action === 'nudge') { setToast((await copy(nudgeMessage(pr))) ? `Copied Slack nudge for #${pr.number}` : 'pbcopy failed'); return }
+		if (action === 'nudge') {
+			const ok = await copy(nudgeMessage(pr))
+			setBusy(b => ({...b, [key]: ok ? '✓ Copied to clipboard' : '✗ pbcopy failed'}))
+			setTimeout(() => setBusy(b => { const {[key]: _, ...rest} = b; return rest }), 3000)
+			return
+		}
 		if (action === 'open') { await openInBrowser(pr); return }
 		if (action === 'approve') {
 			setBusy(b => ({...b, [key]: 'approving…'}))
