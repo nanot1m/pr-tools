@@ -12,28 +12,6 @@ export function nudgeMessage(pr: PR): string {
 
 const SLACK_LIMIT = 3800
 
-function commonPrefix(titles: string[]): string {
-	if (titles.length < 2) return ''
-	let prefix = titles[0]
-	for (const t of titles) while (!t.startsWith(prefix)) prefix = prefix.slice(0, -1)
-	return prefix.replace(/\S*$/, '')
-}
-
-function commonSuffix(titles: string[]): string {
-	if (titles.length < 2) return ''
-	let suffix = titles[0]
-	for (const t of titles) while (!t.endsWith(suffix)) suffix = suffix.slice(1)
-	return suffix.replace(/^\S*/, '')
-}
-
-function prLine(pr: PR, prefix: string, suffix: string): string {
-	let title = pr.title.replace(/^[A-Z]+-\d+\s+/, '')
-	if (prefix && title.startsWith(prefix)) title = title.slice(prefix.length)
-	if (suffix && title.endsWith(suffix)) title = title.slice(0, -suffix.length)
-	title = title.trim()
-	return `• ${title} ${pr.url}`
-}
-
 export function batchNudgeMessages(prs: PR[]): string[] {
 	const byTeam = new Map<string, PR[]>()
 	for (const pr of prs) {
@@ -47,15 +25,11 @@ export function batchNudgeMessages(prs: PR[]): string[] {
 	const groups = [...byTeam.entries()].sort((a, b) => b[1].length - a[1].length || a[0].localeCompare(b[0]))
 	if (!groups.length) return []
 	const all = [...new Set(groups.flatMap(([, list]) => list))]
-	const titles = all.map(pr => pr.title.replace(/^[A-Z]+-\d+\s+/, ''))
-	const prefix = commonPrefix(titles)
-	const suffix = commonSuffix(titles)
 	const ticket = all.map(pr => pr.title.match(/^([A-Z]+-\d+)/)?.[1]).find(Boolean)
-	const shape = prefix || suffix ? ` Each title reads "${prefix}…${suffix}".` : ''
-	const header = `:wave: *Review request${ticket ? ` · ${ticket}` : ''}* — ${all.length} PR${all.length === 1 ? '' : 's'}, CI green on all.${shape}`
+	const header = `:wave: *Review request${ticket ? ` · ${ticket}` : ''}* — ${all.length} PR${all.length === 1 ? '' : 's'}, CI green on all.`
 	const blocks: string[] = []
 	for (const [team, list] of groups) {
-		const lines = list.map(pr => prLine(pr, prefix, suffix))
+		const lines = list.map(pr => `• ${pr.url}`)
 		const perBlock = Math.max(1, Math.floor((SLACK_LIMIT - 200) / Math.max(...lines.map(l => l.length + 1))))
 		for (let i = 0; i < lines.length; i += perBlock) {
 			const chunk = lines.slice(i, i + perBlock)
