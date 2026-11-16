@@ -27,6 +27,7 @@ export interface PR {
 	myReview: string | null
 	mergeState: string
 	inMergeQueue: boolean
+	queue: {position: number; state: string; eta: number | null} | null
 	autoMerge: boolean
 }
 
@@ -135,6 +136,7 @@ const QUERY = `query($q:String!,$after:String){
     nodes{ ... on PullRequest {
       number title url isDraft mergeable updatedAt body additions deletions
       mergeStateStatus isInMergeQueue autoMergeRequest{enabledAt}
+      mergeQueueEntry{position state estimatedTimeToMerge}
       author{login}
       repository{nameWithOwner}
       commits(last:1){nodes{commit{statusCheckRollup{state}}}}
@@ -153,6 +155,7 @@ type Node = {
 	mergeable: PR['mergeable']
 	mergeStateStatus: string
 	isInMergeQueue: boolean
+	mergeQueueEntry: {position: number; state: string; estimatedTimeToMerge: number | null} | null
 	autoMergeRequest: {enabledAt: string} | null
 	updatedAt: string
 	body: string
@@ -196,6 +199,7 @@ async function search(q: string, me: string): Promise<PR[]> {
 				myReview: n.latestReviews.nodes.find(r => r.author.login === me)?.state ?? null,
 				mergeState: n.mergeStateStatus,
 				inMergeQueue: n.isInMergeQueue,
+				queue: n.mergeQueueEntry ? {position: n.mergeQueueEntry.position, state: n.mergeQueueEntry.state, eta: n.mergeQueueEntry.estimatedTimeToMerge} : null,
 				autoMerge: n.autoMergeRequest !== null,
 			})
 		}

@@ -27,10 +27,19 @@ function ago(iso: string): string {
 }
 
 function cardColor(pr: PR): string {
+	if (pr.queue?.state === 'UNMERGEABLE') return 'red'
+	if (pr.inMergeQueue) return 'green'
 	if (pr.unresolved.length > 0 || pr.mergeable === 'CONFLICTING' || pr.ci === 'FAILURE' || pr.ci === 'ERROR') return 'red'
 	if (pr.ci === 'PENDING' || pr.ci === 'EXPECTED') return 'yellow'
 	if (pr.ci === 'SUCCESS') return 'green'
 	return GRAY
+}
+
+function queueLabel(pr: PR): string | null {
+	if (!pr.queue) return pr.inMergeQueue ? 'in merge queue' : null
+	const state = {AWAITING_CHECKS: 'checks running', QUEUED: 'queued', LOCKED: 'merging', MERGEABLE: 'ready', UNMERGEABLE: 'unmergeable'}[pr.queue.state] ?? pr.queue.state.toLowerCase()
+	const eta = pr.queue.eta ? ` ~${Math.max(1, Math.round(pr.queue.eta / 60))}m` : ''
+	return `queue #${pr.queue.position} ${state}${eta}`
 }
 
 function ciLabel(pr: PR): {glyph: string; text: string} {
@@ -75,9 +84,9 @@ const Card = memo(function Card({pr, index, width, tab, busy, onAction}: {pr: PR
 			<text {...LINE} fg={GRAY}><a href={pr.url}>{pr.url}</a></text>
 			<text fg={color}>{'─'.repeat(Math.max(0, width - 4))}</text>
 			<text {...LINE}>
-				<span fg={color}>{text}</span>
+				<span fg={color}>{queueLabel(pr) ?? text}</span>
 				{pr.mergeable === 'CONFLICTING' ? <span fg="red"> · conflicts</span> : null}
-				{pr.inMergeQueue ? <span fg="green"> · in merge queue</span> : pr.autoMerge ? <span fg="green"> · auto-merge on</span> : null}
+				{!queueLabel(pr) && pr.autoMerge ? <span fg="green"> · auto-merge on</span> : null}
 				<span fg={GRAY}> · {ago(pr.updatedAt)}</span>
 				{pr.approvals.length > 0 ? <span fg="green"> · ✓ {pr.approvals.join(', ')}</span> : <span fg={GRAY}> · no approvals</span>}
 			</text>
