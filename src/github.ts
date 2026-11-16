@@ -109,12 +109,19 @@ export class RateLimitError extends Error {
 async function graphql<T>(query: string, variables: Record<string, unknown>): Promise<T> {
 	const token = await getToken()
 	for (let attempt = 0; ; attempt++) {
-		const res = await fetch('https://api.github.com/graphql', {
-			method: 'POST',
-			headers: {Authorization: `bearer ${token}`, 'Content-Type': 'application/json', 'User-Agent': 'prs'},
-			body: JSON.stringify({query, variables}),
-		})
-		const text = await res.text()
+		let res: Response
+		let text: string
+		try {
+			res = await fetch('https://api.github.com/graphql', {
+				method: 'POST',
+				headers: {Authorization: `bearer ${token}`, 'Content-Type': 'application/json', 'User-Agent': 'prs'},
+				body: JSON.stringify({query, variables}),
+			})
+			text = await res.text()
+		} catch (e) {
+			if (attempt < 3) { await new Promise(r => setTimeout(r, 1000 * 2 ** attempt)); continue }
+			throw new Error(`GitHub unreachable: ${(e as Error).message.split('.')[0]}`)
+		}
 		let json: {data?: T; errors?: {message: string; type?: string}[]} | null = null
 		try { json = JSON.parse(text) } catch { /* non-JSON body, handled below */ }
 		if (res.status === 403 || res.status === 429 || json?.errors?.some(e => e.type === 'RATE_LIMITED' || /rate limit/i.test(e.message))) {
