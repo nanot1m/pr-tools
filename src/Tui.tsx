@@ -78,11 +78,11 @@ const Card = memo(function Card({pr, index, width, tab, busy, onAction}: {pr: PR
 	return (
 		<box flexDirection="column" border borderStyle="rounded" borderColor={color} width={width} height={CARD_H} paddingLeft={1} paddingRight={1}>
 			<text {...LINE}>
+				{index <= 9 ? <span fg={GRAY}>[{index}] </span> : null}
 				<span fg={color}>{glyph} </span>
 				<span attributes={TextAttributes.BOLD}><a href={pr.url}>{pr.title}</a></span>
 				<span fg={GRAY}>  #{pr.number}</span>
 				{pr.isDraft ? <span fg={GRAY}> draft</span> : null}
-				{index <= 9 ? <span fg={GRAY}>  [{index}]</span> : null}
 				{tab === 'review' ? <span fg="magenta">  {pr.author}</span> : null}
 			</text>
 			<text {...LINE}>
