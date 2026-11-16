@@ -2,7 +2,7 @@
 import React, {memo, useCallback, useEffect, useMemo, useRef, useState} from 'react'
 import {TextAttributes} from '@opentui/core'
 import {useAnimationTick, useKeyboard, useRenderer, useTerminalDimensions} from '@opentui/react'
-import {approve, fetchForReview, fetchPRs, merge, openInBrowser, RateLimitError, rerunFailed, type PR} from './github'
+import {approve, failureReport, fetchForReview, fetchPRs, merge, openInBrowser, RateLimitError, rerunFailed, type PR} from './github'
 import {copy, nudgeMessage} from './nudge'
 
 const GAP = 1
@@ -12,7 +12,7 @@ const CARD_H = 7
 const CHROME_H = 1 + 3 + 3
 
 type Tab = 'mine' | 'review'
-type Action = 'nudge' | 'rerun' | 'approve' | 'open' | 'merge'
+type Action = 'nudge' | 'rerun' | 'approve' | 'open' | 'merge' | 'copyfail'
 interface Button { label: string; action: Action; fg: string }
 
 const SPINNER = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏']
@@ -58,6 +58,7 @@ function buttonsFor(pr: PR, tab: Tab): Button[] {
 	if (tab === 'mine') {
 		const b: Button[] = [{label: ' nudge ', action: 'nudge', fg: 'cyan'}]
 		if (pr.failedRuns.length > 0) b.push({label: ' rerun CI ', action: 'rerun', fg: 'red'})
+		if (pr.ci === 'FAILURE' || pr.ci === 'ERROR' || pr.unresolved.length > 0 || pr.mergeable === 'CONFLICTING') b.push({label: ' copy fail ', action: 'copyfail', fg: 'red'})
 		if (!pr.isDraft && !pr.inMergeQueue && !pr.autoMerge && pr.mergeable !== 'CONFLICTING') b.push({label: ' merge ', action: 'merge', fg: 'green'})
 		b.push({label: ' open ', action: 'open', fg: 'cyan'})
 		return b
@@ -174,6 +175,12 @@ export function Tui({repos, interval}: {repos: string[]; interval: number}) {
 			return
 		}
 		if (action === 'open') { await openInBrowser(pr); return }
+		if (action === 'copyfail') {
+			const ok = await copy(failureReport(pr))
+			setBusy(b => ({...b, [key]: ok ? '✓ Copied failure report' : '✗ pbcopy failed'}))
+			setTimeout(() => setBusy(b => { const {[key]: _, ...rest} = b; return rest }), 3000)
+			return
+		}
 		if (action === 'merge') {
 			setBusy(b => ({...b, [key]: 'merging…'}))
 			const msg = await merge(pr)
@@ -228,7 +235,7 @@ export function Tui({repos, interval}: {repos: string[]; interval: number}) {
 		if (selected !== null) {
 			const pr = visible[selected - 1]
 			setSelected(null)
-			const map: Record<string, Action | undefined> = {n: 'nudge', c: 'rerun', a: 'approve', o: 'open', m: 'merge'}
+			const map: Record<string, Action | undefined> = {n: 'nudge', c: 'rerun', a: 'approve', o: 'open', m: 'merge', f: 'copyfail'}
 			const action = map[key.name]
 			if (pr && action && buttonsFor(pr, tab).some(b => b.action === action)) act(pr, action)
 			return
@@ -239,7 +246,7 @@ export function Tui({repos, interval}: {repos: string[]; interval: number}) {
 	const red = list.filter(p => p.ci === 'FAILURE' || p.ci === 'ERROR').length
 	const unresolved = list.filter(p => p.unresolved.length > 0).length
 	const waiting = list.filter(p => p.pendingTeams.length + p.pendingUsers.length > 0).length
-	const hint = tab === 'mine' ? 'n nudge · c rerun CI · m merge · o open' : 'a approve · o open'
+	const hint = tab === 'mine' ? 'n nudge · c rerun CI · f copy fail · m merge · o open' : 'a approve · o open'
 	const tabLabel = (t: Tab) => {
 		const name = t === 'mine' ? 'Mine' : 'To review'
 		return t === tab && data[t] ? ` ${name} ${data[t]!.length} ` : ` ${name} `

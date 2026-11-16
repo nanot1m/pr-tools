@@ -3,6 +3,7 @@ import {$} from 'bun'
 export interface Thread {
 	path: string
 	by: string
+	body: string
 }
 
 export interface PR {
@@ -22,6 +23,7 @@ export interface PR {
 	pendingTeams: string[]
 	pendingUsers: string[]
 	unresolved: Thread[]
+	failedChecks: {name: string; url: string}[]
 	failedRuns: string[]
 	author: string
 	myReview: string | null
@@ -149,7 +151,7 @@ const QUERY = `query($q:String!,$after:String){
       commits(last:1){nodes{commit{statusCheckRollup{state}}}}
       reviewRequests(first:20){nodes{requestedReviewer{__typename ... on Team{slug} ... on User{login}}}}
       latestReviews(first:30){nodes{author{login} state}}
-      reviewThreads(first:100){nodes{isResolved path comments(first:1){nodes{author{login}}}}}
+      reviewThreads(first:100){nodes{isResolved path comments(first:1){nodes{author{login} body}}}}
     }}
   }
 }`
@@ -173,7 +175,7 @@ type Node = {
 	commits: {nodes: {commit: {statusCheckRollup: {state: PR['ci']} | null}}[]}
 	reviewRequests: {nodes: {requestedReviewer: {__typename: string; slug?: string; login?: string} | null}[]}
 	latestReviews: {nodes: {author: {login: string}; state: string}[]}
-	reviewThreads: {nodes: {isResolved: boolean; path: string; comments: {nodes: {author: {login: string}}[]}}[]}
+	reviewThreads: {nodes: {isResolved: boolean; path: string; comments: {nodes: {author: {login: string}; body: string}[]}}[]}
 }
 
 async function search(q: string, me: string): Promise<PR[]> {
@@ -200,7 +202,8 @@ async function search(q: string, me: string): Promise<PR[]> {
 				changesRequested: n.latestReviews.nodes.filter(r => r.state === 'CHANGES_REQUESTED').map(r => r.author.login),
 				pendingTeams: n.reviewRequests.nodes.flatMap(r => (r.requestedReviewer?.__typename === 'Team' ? [r.requestedReviewer.slug!] : [])),
 				pendingUsers: n.reviewRequests.nodes.flatMap(r => (r.requestedReviewer?.__typename === 'User' ? [r.requestedReviewer.login!] : [])),
-				unresolved: n.reviewThreads.nodes.filter(t => !t.isResolved).map(t => ({path: t.path, by: t.comments.nodes[0]?.author.login ?? '?'})),
+				unresolved: n.reviewThreads.nodes.filter(t => !t.isResolved).map(t => ({path: t.path, by: t.comments.nodes[0]?.author.login ?? '?', body: t.comments.nodes[0]?.body ?? ''})),
+				failedChecks: [],
 				failedRuns: [],
 				author: n.author?.login ?? '?',
 				myReview: n.latestReviews.nodes.find(r => r.author.login === me)?.state ?? null,
@@ -217,7 +220,7 @@ async function search(q: string, me: string): Promise<PR[]> {
 	return out
 }
 
-type ContextNode = {conclusion?: string; detailsUrl?: string; state?: string; targetUrl?: string}
+type ContextNode = {name?: string; context?: string; conclusion?: string; detailsUrl?: string; state?: string; targetUrl?: string}
 type FailedRunsData = {repository: Record<string, {commits: {nodes: {commit: {statusCheckRollup: {contexts: {nodes: ContextNode[]}} | null}}[]}} | null>}
 
 async function loadFailedRuns(prs: PR[]): Promise<void> {
@@ -225,18 +228,22 @@ async function loadFailedRuns(prs: PR[]): Promise<void> {
 	const byRepo = Map.groupBy(red, p => p.repo)
 	await Promise.all([...byRepo].map(async ([repo, list]) => {
 		const [owner, name] = repo.split('/')
-		const fields = list.map(p => `p${p.number}:pullRequest(number:${p.number}){commits(last:1){nodes{commit{statusCheckRollup{contexts(first:100){nodes{... on CheckRun{conclusion detailsUrl} ... on StatusContext{state targetUrl}}}}}}}}`).join(' ')
+		const fields = list.map(p => `p${p.number}:pullRequest(number:${p.number}){commits(last:1){nodes{commit{statusCheckRollup{contexts(first:100){nodes{... on CheckRun{name conclusion detailsUrl} ... on StatusContext{context state targetUrl}}}}}}}}`).join(' ')
 		const data = await graphql<FailedRunsData>(`query{repository(owner:"${owner}",name:"${name}"){${fields}}}`, {}).catch(() => null)
 		for (const pr of list) {
 			const contexts = data?.repository[`p${pr.number}`]?.commits.nodes[0]?.commit.statusCheckRollup?.contexts.nodes ?? []
 			const runs = new Set<string>()
+			const checks: {name: string; url: string}[] = []
 			for (const c of contexts) {
 				const failed = c.conclusion === 'FAILURE' || c.state === 'FAILURE' || c.state === 'ERROR'
+				if (!failed) continue
 				const url = c.detailsUrl ?? c.targetUrl ?? ''
-				const m = failed ? url.match(/\/runs\/(\d+)\//) : null
+				checks.push({name: c.name ?? c.context ?? 'check', url})
+				const m = url.match(/\/runs\/(\d+)\//)
 				if (m) runs.add(m[1])
 			}
 			pr.failedRuns = [...runs]
+			pr.failedChecks = checks
 		}
 	}))
 }
@@ -275,6 +282,21 @@ export async function merge(pr: PR): Promise<string> {
 	if (r.exitCode !== 0) return `Merge failed: ${r.stderr.toString().trim().split('\n').pop()}`
 	const out = r.stdout.toString() + r.stderr.toString()
 	return /queue/i.test(out) ? `#${pr.number} added to the merge queue` : /auto-merge|automatically/i.test(out) ? `Auto-merge enabled for #${pr.number}` : `#${pr.number}: ${out.trim().split('\n').pop() || 'merge requested'}`
+}
+
+export function failureReport(pr: PR): string {
+	const lines = [`${pr.repo}#${pr.number} ${pr.title}`, pr.url, '']
+	if (pr.failedChecks.length) {
+		lines.push('Failed checks:')
+		for (const c of pr.failedChecks) lines.push(`- ${c.name} ${c.url}`)
+	}
+	if (pr.unresolved.length) {
+		if (lines.length > 3) lines.push('')
+		lines.push('Unresolved threads:')
+		for (const t of pr.unresolved) lines.push(`- ${t.path} (${t.by}): ${t.body.replace(/\s+/g, ' ').slice(0, 300)}`)
+	}
+	if (pr.mergeable === 'CONFLICTING') lines.push('', 'Merge conflicts with base branch')
+	return lines.join('\n')
 }
 
 export async function openInBrowser(pr: PR): Promise<void> {
