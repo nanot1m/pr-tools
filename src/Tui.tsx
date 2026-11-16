@@ -3,7 +3,7 @@ import React, {memo, useCallback, useEffect, useMemo, useRef, useState} from 're
 import {TextAttributes} from '@opentui/core'
 import {useAnimationTick, useKeyboard, useRenderer, useTerminalDimensions} from '@opentui/react'
 import {approve, failureReport, fetchForReview, fetchPRs, merge, openInBrowser, RateLimitError, rerunFailed, type PR} from './github'
-import {batchNudgeMessage, copy, nudgeMessage} from './nudge'
+import {batchNudgeMessages, copy, nudgeMessage} from './nudge'
 
 const GAP = 1
 const MIN_CARD = 64
@@ -232,11 +232,16 @@ export function Tui({repos, interval}: {repos: string[]; interval: number}) {
 	}, [tab, layout.perPage])
 	const selectPr = useCallback((pr: PR) => { const i = list.indexOf(pr); if (i >= 0) select(i) }, [list, select])
 
+	const nudgePart = useRef(0)
 	const nudgeAll = useCallback(async () => {
-		const msg = batchNudgeMessage(list)
-		if (!msg) { setToast('nothing to nudge'); return }
-		const teams = (msg.match(/^@/gm) ?? []).length
-		setToast((await copy(msg)) ? `✓ Copied batch nudge for ${teams} teams` : '✗ pbcopy failed')
+		const parts = batchNudgeMessages(list)
+		if (!parts.length) { setToast('nothing to nudge'); return }
+		const i = nudgePart.current % parts.length
+		nudgePart.current = i + 1
+		const teams = (parts[i].match(/^:busts_in_silhouette:/gm) ?? []).length
+		const which = parts.length > 1 ? `part ${i + 1}/${parts.length} (${teams} teams, ${parts[i].length} chars)` : `${teams} teams, ${parts[i].length} chars`
+		const next = parts.length > 1 ? (i + 1 < parts.length ? ' · press N again for the next part' : ' · that was the last part') : ''
+		setToast((await copy(parts[i])) ? `✓ Copied batch nudge ${which}${next}` : '✗ pbcopy failed')
 	}, [list])
 
 	useKeyboard(key => {
