@@ -106,19 +106,27 @@ export class RateLimitError extends Error {
 }
 
 async function graphql<T>(query: string, variables: Record<string, unknown>): Promise<T> {
-	const res = await fetch('https://api.github.com/graphql', {
-		method: 'POST',
-		headers: {Authorization: `bearer ${await getToken()}`, 'Content-Type': 'application/json'},
-		body: JSON.stringify({query, variables}),
-	})
-	const json = (await res.json()) as {data?: T; errors?: {message: string; type?: string}[]}
-	const message = json.errors?.map(e => e.message).join('; ') ?? res.statusText
-	if (res.status === 403 || res.status === 429 || json.errors?.some(e => e.type === 'RATE_LIMITED' || /rate limit/i.test(e.message))) {
-		const reset = Number(res.headers.get('x-ratelimit-reset')) * 1000
-		throw new RateLimitError(reset > Date.now() ? reset : Date.now() + 60_000)
+	const token = await getToken()
+	for (let attempt = 0; ; attempt++) {
+		const res = await fetch('https://api.github.com/graphql', {
+			method: 'POST',
+			headers: {Authorization: `bearer ${token}`, 'Content-Type': 'application/json', 'User-Agent': 'prs'},
+			body: JSON.stringify({query, variables}),
+		})
+		const text = await res.text()
+		let json: {data?: T; errors?: {message: string; type?: string}[]} | null = null
+		try { json = JSON.parse(text) } catch { /* non-JSON body, handled below */ }
+		if (res.status === 403 || res.status === 429 || json?.errors?.some(e => e.type === 'RATE_LIMITED' || /rate limit/i.test(e.message))) {
+			const reset = Number(res.headers.get('x-ratelimit-reset')) * 1000
+			throw new RateLimitError(reset > Date.now() ? reset : Date.now() + 60_000)
+		}
+		if (json === null || res.status >= 500) {
+			if (attempt < 3) { await new Promise(r => setTimeout(r, 1000 * 2 ** attempt)); continue }
+			throw new Error(`GitHub returned ${res.status} ${res.statusText}: ${text.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 120)}`)
+		}
+		if (!res.ok || json.errors?.length) throw new Error(json.errors?.map(e => e.message).join('; ') ?? `${res.status} ${res.statusText}`)
+		return json.data as T
 	}
-	if (!res.ok || json.errors?.length) throw new Error(message)
-	return json.data as T
 }
 
 const QUERY = `query($q:String!,$after:String){
