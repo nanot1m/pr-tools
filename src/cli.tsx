@@ -3,11 +3,14 @@ import {createRoot} from '@opentui/react'
 import {Tui} from './Tui'
 import {fetchPRs, rerunFailed} from './github'
 import {copy, nudgeMessage} from './nudge'
+import {CONFIG_PATH, loadConfig} from './config'
+
+const config = loadConfig()
 
 const args = process.argv.slice(2)
 const repos: string[] = []
 let json = false
-let interval = 120
+let interval = config.interval
 let cmd: 'tui' | 'nudge' | 'rerun' = 'tui'
 let target: number | undefined
 
@@ -20,11 +23,16 @@ for (let i = 0; i < args.length; i++) {
 		console.log(`prs [owner/repo ...] [--json] [--interval SECONDS]
 prs nudge [PR]    copy a Slack review request to the clipboard
 prs rerun <PR>    rerun the failed CI jobs of a PR
-default repo miroapp-dev/client · keys in the UI: [1-9] then n or c, r refresh, q quit`)
+config: ${CONFIG_PATH}  {"repos": ["owner/repo"], "interval": 120, "teams": {"gh-team-slug": "@slack-handle"}}
+keys in the UI: [1-9] then n or c, r refresh, q quit`)
 		process.exit(0)
 	} else if (/^[\w.-]+\/[\w.-]+$/.test(a)) repos.push(a)
 }
-if (repos.length === 0) repos.push('miroapp-dev/client')
+if (repos.length === 0) repos.push(...config.repos)
+if (repos.length === 0) {
+	console.error(`No repositories given. Pass owner/repo or set "repos" in ${CONFIG_PATH}`)
+	process.exit(1)
+}
 
 if (json) {
 	console.log(JSON.stringify(await fetchPRs(repos), null, 2))

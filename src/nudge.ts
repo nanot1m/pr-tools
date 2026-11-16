@@ -1,20 +1,10 @@
 import {$} from 'bun'
-import {existsSync, readFileSync} from 'node:fs'
-import {homedir} from 'node:os'
+import {loadConfig} from './config'
 import type {PR} from './github'
-
-function teamHandles(): Record<string, string> {
-	const p = `${homedir()}/.config/prs/teams.json`
-	try {
-		return existsSync(p) ? (JSON.parse(readFileSync(p, 'utf8')) as Record<string, string>) : {}
-	} catch {
-		return {}
-	}
-}
 
 export function slackHandle(slug: string): string {
 	const bare = slug.replace(/^.*\//, '')
-	return teamHandles()[bare] ?? `@${bare}`
+	return loadConfig().teams[bare] ?? `@${bare}`
 }
 
 export function nudgeMessage(pr: PR): string {

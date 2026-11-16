@@ -4,7 +4,7 @@
 # Usage: prs [owner/repo ...] [--json] [--watch [SECONDS]] [--no-color|--color]
 #        prs nudge [PR-number]      copy a Slack review request to the clipboard
 #        prs rerun <PR-number>       rerun the failed CI jobs of a PR
-#   default repo: miroapp-dev/client · --watch refreshes in place (default 120s)
+#   default repos: "repos" in ~/.config/prs/config.json · --watch refreshes in place (default 120s)
 #   team handles: ~/.config/prs/teams.json  {"github-slug": "@slack-handle"}
 set -uo pipefail
 
@@ -22,7 +22,8 @@ while [ $# -gt 0 ]; do
 	esac
 	shift
 done
-[ ${#REPOS[@]} -eq 0 ] && REPOS=(miroapp-dev/client)
+[ ${#REPOS[@]} -eq 0 ] && [ -f ~/.config/prs/config.json ] && REPOS=($(jq -r '.repos[]?' ~/.config/prs/config.json))
+[ ${#REPOS[@]} -eq 0 ] && { echo "No repositories given. Pass owner/repo or set repos in ~/.config/prs/config.json" >&2; exit 1; }
 [ -t 1 ] || [ "$COLOR" = 2 ] || COLOR=0
 
 if [ "$COLOR" = 1 ]; then
