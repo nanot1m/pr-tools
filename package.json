@@ -1,0 +1,20 @@
+{
+  "name": "pr-tools",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "prs": "./prs"
+  },
+  "scripts": {
+    "start": "bun run src/cli.tsx"
+  },
+  "dependencies": {
+    "@opentui/core": "^0.9.1",
+    "@opentui/react": "^0.9.1",
+    "react": "19"
+  },
+  "devDependencies": {
+    "@types/react": "19",
+    "@types/bun": "latest"
+  }
+}
