@@ -3,7 +3,7 @@ import React, {memo, useCallback, useEffect, useMemo, useRef, useState} from 're
 import {TextAttributes} from '@opentui/core'
 import {useAnimationTick, useKeyboard, useRenderer, useTerminalDimensions} from '@opentui/react'
 import {approve, failureReport, fetchForReview, fetchPRs, merge, openInBrowser, RateLimitError, rerunFailed, type PR} from './github'
-import {copy, nudgeMessage} from './nudge'
+import {batchNudgeMessage, copy, nudgeMessage} from './nudge'
 
 const GAP = 1
 const MIN_CARD = 64
@@ -232,7 +232,15 @@ export function Tui({repos, interval}: {repos: string[]; interval: number}) {
 	}, [tab, layout.perPage])
 	const selectPr = useCallback((pr: PR) => { const i = list.indexOf(pr); if (i >= 0) select(i) }, [list, select])
 
+	const nudgeAll = useCallback(async () => {
+		const msg = batchNudgeMessage(list)
+		if (!msg) { setToast('nothing to nudge'); return }
+		const teams = (msg.match(/^@/gm) ?? []).length
+		setToast((await copy(msg)) ? `✓ Copied batch nudge for ${teams} teams` : '✗ pbcopy failed')
+	}, [list])
+
 	useKeyboard(key => {
+		if (key.name === 'N' || (key.shift && key.name === 'n')) { if (tab === 'mine') nudgeAll(); return }
 		if (key.name === 'q' || (key.ctrl && key.name === 'c')) { renderer.destroy(); process.exit(0) }
 		if (key.name === 'r') { refresh(tab); return }
 		if (key.name === 'tab' || key.name === 't') { switchTab(tab === 'mine' ? 'review' : 'mine'); return }
@@ -264,6 +272,7 @@ export function Tui({repos, interval}: {repos: string[]; interval: number}) {
 			<box flexDirection="row">
 				<box onMouseDown={() => switchTab('mine')}><text fg={tab === 'mine' ? '#ffffff' : '#5fafff'} bg={tab === 'mine' ? '#005fd7' : undefined} attributes={TextAttributes.BOLD}>{tabLabel('mine')}</text></box>
 				<box marginLeft={2} onMouseDown={() => switchTab('review')}><text fg={tab === 'review' ? '#ffffff' : '#d75fd7'} bg={tab === 'review' ? '#8700af' : undefined} attributes={TextAttributes.BOLD}>{tabLabel('review')}</text></box>
+				{tab === 'mine' ? <box marginLeft={4} onMouseDown={nudgeAll}><text fg="#000000" bg={BUTTON_BG.cyan} attributes={TextAttributes.BOLD}> nudge all </text></box> : null}
 			</box>
 			<box border borderStyle="rounded" borderColor="blue" paddingLeft={1} paddingRight={1} height={3}>
 				<text {...LINE}>
@@ -291,7 +300,7 @@ export function Tui({repos, interval}: {repos: string[]; interval: number}) {
 			</box>
 			<box flexDirection="column" height={2}>
 				<text fg={GRAY} {...LINE}>
-					<span attributes={TextAttributes.BOLD}>↑↓←→</span> select · <span attributes={TextAttributes.BOLD}>Esc</span> clear · {hint} · <span attributes={TextAttributes.BOLD}>PgUp/PgDn</span> page · <span attributes={TextAttributes.BOLD}>Tab</span> switch · <span attributes={TextAttributes.BOLD}>r</span> refresh · <span attributes={TextAttributes.BOLD}>q</span> quit · every {interval}s
+					<span attributes={TextAttributes.BOLD}>↑↓←→</span> select · <span attributes={TextAttributes.BOLD}>Esc</span> clear · {hint}{tab === 'mine' ? <span> · <span attributes={TextAttributes.BOLD}>N</span> nudge all</span> : null} · <span attributes={TextAttributes.BOLD}>PgUp/PgDn</span> page · <span attributes={TextAttributes.BOLD}>Tab</span> switch · <span attributes={TextAttributes.BOLD}>r</span> refresh · <span attributes={TextAttributes.BOLD}>q</span> quit · every {interval}s
 				</text>
 				<text fg="green" {...LINE}>{toast ?? ' '}</text>
 			</box>
