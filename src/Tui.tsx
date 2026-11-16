@@ -72,14 +72,13 @@ function Spinner() {
 	return <span fg={AMBER}>{SPINNER[i]}</span>
 }
 
-const Card = memo(function Card({pr, index, width, tab, busy, onAction}: {pr: PR; index: number; width: number; tab: Tab; busy?: string; onAction: (pr: PR, a: Action) => void}) {
+const Card = memo(function Card({pr, width, tab, busy, selected, onAction, onSelect}: {pr: PR; width: number; tab: Tab; busy?: string; selected: boolean; onAction: (pr: PR, a: Action) => void; onSelect: (pr: PR) => void}) {
 	const color = cardColor(pr)
 	const {glyph, text} = ciLabel(pr)
 	const buttons = buttonsFor(pr, tab)
 	return (
-		<box flexDirection="column" border borderStyle="rounded" borderColor={color} width={width} height={CARD_H} paddingLeft={1} paddingRight={1}>
+		<box flexDirection="column" border borderStyle={selected ? "double" : "rounded"} borderColor={selected ? "#ffffff" : color} width={width} height={CARD_H} paddingLeft={1} paddingRight={1} onMouseDown={() => onSelect(pr)}>
 			<text {...LINE}>
-				{index <= 9 ? <span fg={GRAY}>[{index}] </span> : null}
 				<span fg={color}>{glyph} </span>
 				<span attributes={TextAttributes.BOLD}><a href={pr.url}>{pr.title}</a></span>
 				<span fg={GRAY}>  #{pr.number}</span>
@@ -118,7 +117,7 @@ export function Tui({repos, interval}: {repos: string[]; interval: number}) {
 	const [loading, setLoading] = useState(false)
 	const [error, setError] = useState<string | null>(null)
 	const [toast, setToast] = useState<string | null>(null)
-	const [selected, setSelected] = useState<number | null>(null)
+	const [selected, setSelected] = useState<Record<Tab, number>>({mine: 0, review: 0})
 	const [busy, setBusy] = useState<Record<string, string>>({})
 	const [updatedAt, setUpdatedAt] = useState<Date | null>(null)
 	const [page, setPage] = useState<Record<Tab, number>>({mine: 0, review: 0})
@@ -224,23 +223,32 @@ export function Tui({repos, interval}: {repos: string[]; interval: number}) {
 	const cardRows: PR[][] = []
 	for (let i = 0; i < visible.length; i += layout.n) cardRows.push(visible.slice(i, i + layout.n))
 
-	const switchTab = (t: Tab) => { setTab(t); setSelected(null) }
+	const sel = Math.min(selected[tab], Math.max(0, list.length - 1))
+	const selPr: PR | undefined = list[sel]
+	const switchTab = (t: Tab) => setTab(t)
+	const select = useCallback((i: number) => {
+		setSelected(s => ({...s, [tab]: i}))
+		setPage(p => ({...p, [tab]: Math.floor(i / layout.perPage)}))
+	}, [tab, layout.perPage])
+	const selectPr = useCallback((pr: PR) => { const i = list.indexOf(pr); if (i >= 0) select(i) }, [list, select])
 
 	useKeyboard(key => {
 		if (key.name === 'q' || (key.ctrl && key.name === 'c')) { renderer.destroy(); process.exit(0) }
 		if (key.name === 'r') { refresh(tab); return }
 		if (key.name === 'tab' || key.name === 't') { switchTab(tab === 'mine' ? 'review' : 'mine'); return }
-		if (key.name === 'right' || key.name === 'pagedown') { setPage(p => ({...p, [tab]: Math.min(pageCount - 1, p[tab] + 1)})); return }
-		if (key.name === 'left' || key.name === 'pageup') { setPage(p => ({...p, [tab]: Math.max(0, p[tab] - 1)})); return }
-		if (selected !== null) {
-			const pr = visible[selected - 1]
-			setSelected(null)
-			const map: Record<string, Action | undefined> = {n: 'nudge', c: 'rerun', a: 'approve', o: 'open', m: 'merge', f: 'copyfail'}
-			const action = map[key.name]
-			if (pr && action && buttonsFor(pr, tab).some(b => b.action === action)) act(pr, action)
-			return
-		}
-		if (/^[1-9]$/.test(key.name) && Number(key.name) <= visible.length) { setSelected(Number(key.name)); setToast(null) }
+		if (!list.length) return
+		const last = list.length - 1
+		if (key.name === 'pagedown' || key.name === ']') { select(Math.min(last, sel + layout.perPage)); return }
+		if (key.name === 'pageup' || key.name === '[') { select(Math.max(0, sel - layout.perPage)); return }
+		if (key.name === 'right' || key.name === 'l') { select(Math.min(last, sel + 1)); return }
+		if (key.name === 'left' || key.name === 'h') { select(Math.max(0, sel - 1)); return }
+		if (key.name === 'down' || key.name === 'j') { select(Math.min(last, sel + layout.n)); return }
+		if (key.name === 'up' || key.name === 'k') { select(Math.max(0, sel - layout.n)); return }
+		if (key.name === 'home') { select(0); return }
+		if (key.name === 'end') { select(last); return }
+		const map: Record<string, Action | undefined> = {n: 'nudge', c: 'rerun', a: 'approve', o: 'open', return: 'open', m: 'merge', f: 'copyfail'}
+		const action = map[key.name]
+		if (selPr && action && buttonsFor(selPr, tab).some(b => b.action === action)) act(selPr, action)
 	})
 
 	const red = list.filter(p => p.ci === 'FAILURE' || p.ci === 'ERROR').length
@@ -267,7 +275,7 @@ export function Tui({repos, interval}: {repos: string[]; interval: number}) {
 					<span fg="red">   ✎ {unresolved} unresolved</span>
 					<span fg={AMBER}>   ◌ {waiting} awaiting review</span>
 					<span fg={GRAY}>   {repos.join(' ')}{updatedAt ? ` · ${updatedAt.toTimeString().slice(0, 5)}` : ''}</span>
-					{pageCount > 1 ? <span fg={GRAY}>   page {current + 1}/{pageCount} ←→</span> : null}
+					{pageCount > 1 ? <span fg={GRAY}>   page {current + 1}/{pageCount}</span> : null}
 				</text>
 			</box>
 			{retryAt ? <text fg={AMBER} {...LINE}>GitHub rate limit hit · retrying at {new Date(retryAt).toTimeString().slice(0, 8)}</text> : error ? <text fg="red" {...LINE}>{error}</text> : null}
@@ -276,7 +284,7 @@ export function Tui({repos, interval}: {repos: string[]; interval: number}) {
 					<box key={ri} flexDirection="row">
 						{row.map((pr, ci) => (
 							<box key={pr.url} marginLeft={ci > 0 ? GAP : 0}>
-								<Card pr={pr} index={ri * layout.n + ci + 1} width={layout.w} tab={tab} busy={busy[pr.url]} onAction={act} />
+								<Card pr={pr} width={layout.w} tab={tab} busy={busy[pr.url]} selected={pr === selPr} onAction={act} onSelect={selectPr} />
 							</box>
 						))}
 					</box>
@@ -284,8 +292,7 @@ export function Tui({repos, interval}: {repos: string[]; interval: number}) {
 			</box>
 			<box flexDirection="column" height={2}>
 				<text fg={GRAY} {...LINE}>
-					click a button or tab · <span attributes={TextAttributes.BOLD}>[1-9]</span> then {hint} · <span attributes={TextAttributes.BOLD}>Tab</span> switch · <span attributes={TextAttributes.BOLD}>←→</span> page · <span attributes={TextAttributes.BOLD}>r</span> refresh · <span attributes={TextAttributes.BOLD}>q</span> quit · every {interval}s
-					{selected !== null ? <span fg={AMBER}>   #{visible[selected - 1]?.number}: {hint}</span> : null}
+					<span attributes={TextAttributes.BOLD}>↑↓←→</span> select · {hint} · <span attributes={TextAttributes.BOLD}>PgUp/PgDn</span> page · <span attributes={TextAttributes.BOLD}>Tab</span> switch · <span attributes={TextAttributes.BOLD}>r</span> refresh · <span attributes={TextAttributes.BOLD}>q</span> quit · every {interval}s
 				</text>
 				<text fg="green" {...LINE}>{toast ?? ' '}</text>
 			</box>
