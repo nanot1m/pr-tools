@@ -18,6 +18,7 @@ interface Button { label: string; action: Action; fg: string }
 const SPINNER = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏']
 const GRAY = '#8a8a8a'
 const QUEUE = '#bf8700'
+const AMBER = '#d78700'
 const BUTTON_BG: Record<string, string> = {cyan: '#00d7d7', green: '#5fd75f', red: '#ff5f5f'}
 const LINE = {truncate: true, wrapMode: 'none'} as const
 
@@ -32,7 +33,7 @@ function cardColor(pr: PR): string {
 	if (pr.queue?.state === 'UNMERGEABLE') return 'red'
 	if (pr.inMergeQueue) return QUEUE
 	if (pr.unresolved.length > 0 || pr.mergeable === 'CONFLICTING' || pr.ci === 'FAILURE' || pr.ci === 'ERROR') return 'red'
-	if (pr.ci === 'PENDING' || pr.ci === 'EXPECTED') return 'yellow'
+	if (pr.ci === 'PENDING' || pr.ci === 'EXPECTED') return AMBER
 	if (pr.ci === 'SUCCESS') return 'green'
 	return GRAY
 }
@@ -67,7 +68,7 @@ function buttonsFor(pr: PR, tab: Tab): Button[] {
 function Spinner() {
 	const [i, setI] = useState(0)
 	useAnimationTick(12, () => setI(n => (n + 1) % SPINNER.length))
-	return <span fg="yellow">{SPINNER[i]}</span>
+	return <span fg={AMBER}>{SPINNER[i]}</span>
 }
 
 const Card = memo(function Card({pr, index, width, tab, busy, onAction}: {pr: PR; index: number; width: number; tab: Tab; busy?: string; onAction: (pr: PR, a: Action) => void}) {
@@ -93,8 +94,8 @@ const Card = memo(function Card({pr, index, width, tab, busy, onAction}: {pr: PR
 				<span fg={GRAY}> · {ago(pr.updatedAt)}</span>
 				{pr.approvals.length > 0 ? <span fg="green"> · ✓ {pr.approvals.join(', ')}</span> : <span fg={GRAY}> · no approvals</span>}
 			</text>
-			<text {...LINE}><span fg="yellow">teams: </span>{pr.pendingTeams.length ? pr.pendingTeams.map(t => t.replace(/^.*\//, '')).join('  ') : <span fg={GRAY}>none</span>}</text>
-			<text {...LINE}><span fg="yellow">users: </span>{pr.pendingUsers.length ? pr.pendingUsers.join('  ') : <span fg={GRAY}>none</span>}</text>
+			<text {...LINE}><span fg={AMBER}>teams: </span>{pr.pendingTeams.length ? pr.pendingTeams.map(t => t.replace(/^.*\//, '')).join('  ') : <span fg={GRAY}>none</span>}</text>
+			<text {...LINE}><span fg={AMBER}>users: </span>{pr.pendingUsers.length ? pr.pendingUsers.join('  ') : <span fg={GRAY}>none</span>}</text>
 			{pr.unresolved.length > 0
 				? <text {...LINE}><span fg="red">✎ {pr.unresolved.length} unresolved: </span>{pr.unresolved.map(t => `${t.path.split('/').pop()} (${t.by})`).join(', ')}</text>
 				: pr.changesRequested.length > 0
@@ -106,7 +107,7 @@ const Card = memo(function Card({pr, index, width, tab, busy, onAction}: {pr: PR
 						<text fg="#000000" bg={BUTTON_BG[b.fg]} attributes={TextAttributes.BOLD}>{b.label}</text>
 					</box>
 				))}
-				{busy ? <text fg={busy.startsWith('✓') ? 'green' : busy.startsWith('✗') ? 'red' : 'yellow'}>  {busy}</text> : null}
+				{busy ? <text fg={busy.startsWith('✓') ? 'green' : busy.startsWith('✗') ? 'red' : AMBER}>  {busy}</text> : null}
 			</box>
 		</box>
 	)
@@ -262,12 +263,12 @@ export function Tui({repos, interval}: {repos: string[]; interval: number}) {
 					<span attributes={TextAttributes.BOLD}>  {list.length} open</span>
 					<span fg="red">   ✗ {red} red CI</span>
 					<span fg="red">   ✎ {unresolved} unresolved</span>
-					<span fg="yellow">   ◌ {waiting} awaiting review</span>
+					<span fg={AMBER}>   ◌ {waiting} awaiting review</span>
 					<span fg={GRAY}>   {repos.join(' ')}{updatedAt ? ` · ${updatedAt.toTimeString().slice(0, 5)}` : ''}</span>
 					{pageCount > 1 ? <span fg={GRAY}>   page {current + 1}/{pageCount} ←→</span> : null}
 				</text>
 			</box>
-			{retryAt ? <text fg="yellow" {...LINE}>GitHub rate limit hit · retrying at {new Date(retryAt).toTimeString().slice(0, 8)}</text> : error ? <text fg="red" {...LINE}>{error}</text> : null}
+			{retryAt ? <text fg={AMBER} {...LINE}>GitHub rate limit hit · retrying at {new Date(retryAt).toTimeString().slice(0, 8)}</text> : error ? <text fg="red" {...LINE}>{error}</text> : null}
 			<box flexDirection="column" flexGrow={1}>
 				{cardRows.map((row, ri) => (
 					<box key={ri} flexDirection="row" marginTop={1}>
@@ -282,7 +283,7 @@ export function Tui({repos, interval}: {repos: string[]; interval: number}) {
 			<box flexDirection="column" height={2}>
 				<text fg={GRAY} {...LINE}>
 					click a button or tab · <span attributes={TextAttributes.BOLD}>[1-9]</span> then {hint} · <span attributes={TextAttributes.BOLD}>Tab</span> switch · <span attributes={TextAttributes.BOLD}>←→</span> page · <span attributes={TextAttributes.BOLD}>r</span> refresh · <span attributes={TextAttributes.BOLD}>q</span> quit · every {interval}s
-					{selected !== null ? <span fg="yellow">   #{visible[selected - 1]?.number}: {hint}</span> : null}
+					{selected !== null ? <span fg={AMBER}>   #{visible[selected - 1]?.number}: {hint}</span> : null}
 				</text>
 				<text fg="green" {...LINE}>{toast ?? ' '}</text>
 			</box>
