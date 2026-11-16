@@ -1,10 +1,8 @@
 import {$} from 'bun'
-import {loadConfig} from './config'
 import type {PR} from './github'
 
 export function slackHandle(slug: string): string {
-	const bare = slug.replace(/^.*\//, '')
-	return loadConfig().teams[bare] ?? `@${bare}`
+	return `@${slug.replace(/^.*\//, '')}`
 }
 
 export function nudgeMessage(pr: PR): string {

@@ -4,13 +4,12 @@ import {homedir} from 'node:os'
 export interface Config {
 	repos: string[]
 	interval: number
-	teams: Record<string, string>
 }
 
 export const CONFIG_PATH = `${homedir()}/.config/prs/config.json`
 
 export function loadConfig(): Config {
-	const defaults: Config = {repos: [], interval: 120, teams: {}}
+	const defaults: Config = {repos: [], interval: 120}
 	if (!existsSync(CONFIG_PATH)) return defaults
 	try {
 		return {...defaults, ...(JSON.parse(readFileSync(CONFIG_PATH, 'utf8')) as Partial<Config>)}

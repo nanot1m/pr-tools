@@ -23,7 +23,7 @@ for (let i = 0; i < args.length; i++) {
 		console.log(`prs [owner/repo ...] [--json] [--interval SECONDS]
 prs nudge [PR]    copy a Slack review request to the clipboard
 prs rerun <PR>    rerun the failed CI jobs of a PR
-config: ${CONFIG_PATH}  {"repos": ["owner/repo"], "interval": 120, "teams": {"gh-team-slug": "@slack-handle"}}
+config: ${CONFIG_PATH}  {"repos": ["owner/repo"], "interval": 120}
 keys in the UI: [1-9] then n or c, r refresh, q quit`)
 		process.exit(0)
 	} else if (/^[\w.-]+\/[\w.-]+$/.test(a)) repos.push(a)

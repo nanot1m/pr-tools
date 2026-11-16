@@ -27,11 +27,10 @@ Configuration lives in `~/.config/prs/config.json`:
 ```json
 {
   "repos": ["owner/repo"],
-  "interval": 120,
-  "teams": {"github-team-slug": "@slack-handle"}
+  "interval": 120
 }
 ```
 
-`repos` are used when none are passed on the command line, `interval` is the refresh cadence in seconds, and `teams` maps GitHub team slugs to Slack handles for the nudge message; unmapped teams fall back to `@slug`.
+`repos` are used when none are passed on the command line and `interval` is the refresh cadence in seconds. The nudge message tags pending teams by their GitHub slug without the org prefix (`org/foo` becomes `@foo`).
 
 `prs.sh` is the previous bash implementation, kept for reference.
