@@ -19,7 +19,6 @@ const SPINNER = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', 
 const GRAY = '#8a8a8a'
 const QUEUE = '#bf8700'
 const AMBER = '#d78700'
-const BUTTON_W = 10
 const BUTTON_BG: Record<string, string> = {cyan: '#00d7d7', green: '#5fd75f', red: '#ff5f5f'}
 const LINE = {truncate: true, wrapMode: 'none'} as const
 
@@ -77,35 +76,32 @@ const Card = memo(function Card({pr, index, width, tab, busy, onAction}: {pr: PR
 	const {glyph, text} = ciLabel(pr)
 	const buttons = buttonsFor(pr, tab)
 	return (
-		<box flexDirection="row" border borderStyle="rounded" borderColor={color} width={width} height={CARD_H} paddingLeft={1} paddingRight={1}>
-			<box flexDirection="column" flexGrow={1} flexShrink={1} minWidth={0}>
-				<text {...LINE}>
-					<span fg={color}>{glyph} </span>
-					<span attributes={TextAttributes.BOLD}>{pr.repo.split('/')[1]}#{pr.number}</span>
-					{pr.isDraft ? <span fg={GRAY}> draft</span> : null}
-					{index <= 9 ? <span fg={GRAY}>  [{index}]</span> : null}
-					{tab === 'review' ? <span fg="magenta">  {pr.author}</span> : null}
-					{busy ? <span fg={busy.startsWith('✓') ? 'green' : busy.startsWith('✗') ? 'red' : AMBER}>  {busy}</span> : null}
-				</text>
-				<text {...LINE} attributes={TextAttributes.BOLD}><a href={pr.url}>{pr.title}</a></text>
-				<text {...LINE}>
-					<span fg={color}>{queueLabel(pr) ?? text}</span>
-					{pr.mergeable === 'CONFLICTING' ? <span fg="red"> · conflicts</span> : null}
-					{!queueLabel(pr) && pr.autoMerge ? <span fg="green"> · auto-merge</span> : null}
-					{pr.unresolved.length > 0 ? <span fg="red"> · ✎ {pr.unresolved.length} unresolved</span> : null}
-					{pr.changesRequested.length > 0 ? <span fg="red"> · changes requested</span> : null}
-					<span fg={GRAY}> · {ago(pr.updatedAt)}</span>
-					{pr.approvals.length > 0 ? <span fg="green"> · ✓ {pr.approvals.join(', ')}</span> : <span fg={GRAY}> · no approvals</span>}
-				</text>
-				<text {...LINE}><span fg={AMBER}>teams </span>{pr.pendingTeams.length ? pr.pendingTeams.map(t => t.replace(/^.*\//, '')).join('  ') : <span fg={GRAY}>none</span>}</text>
-				<text {...LINE}><span fg={AMBER}>users </span>{pr.pendingUsers.length ? pr.pendingUsers.join('  ') : <span fg={GRAY}>none</span>}</text>
-			</box>
-			<box flexDirection="column" width={BUTTON_W} marginLeft={1} flexShrink={0}>
-				{buttons.map(b => (
-					<box key={b.action} onMouseDown={() => onAction(pr, b.action)}>
-						<text fg="#000000" bg={BUTTON_BG[b.fg]} attributes={TextAttributes.BOLD}>{b.label.padEnd(BUTTON_W)}</text>
+		<box flexDirection="column" border borderStyle="rounded" borderColor={color} width={width} height={CARD_H} paddingLeft={1} paddingRight={1}>
+			<text {...LINE}>
+				<span fg={color}>{glyph} </span>
+				<span attributes={TextAttributes.BOLD}>{pr.repo.split('/')[1]}#{pr.number}</span>
+				{pr.isDraft ? <span fg={GRAY}> draft</span> : null}
+				{index <= 9 ? <span fg={GRAY}>  [{index}]</span> : null}
+				{tab === 'review' ? <span fg="magenta">  {pr.author}</span> : null}
+			</text>
+			<text {...LINE} attributes={TextAttributes.BOLD}><a href={pr.url}>{pr.title}</a></text>
+			<text {...LINE}>
+				<span fg={color}>{queueLabel(pr) ?? text}</span>
+				{pr.mergeable === 'CONFLICTING' ? <span fg="red"> · conflicts</span> : null}
+				{!queueLabel(pr) && pr.autoMerge ? <span fg="green"> · auto-merge</span> : null}
+				{pr.unresolved.length > 0 ? <span fg="red"> · ✎ {pr.unresolved.length} unresolved</span> : null}
+				{pr.changesRequested.length > 0 ? <span fg="red"> · changes requested</span> : null}
+				<span fg={GRAY}> · {ago(pr.updatedAt)}</span>
+				{pr.approvals.length > 0 ? <span fg="green"> · ✓ {pr.approvals.join(', ')}</span> : <span fg={GRAY}> · no approvals</span>}
+			</text>
+			<text {...LINE}><span fg={AMBER}>teams </span>{pr.pendingTeams.length ? pr.pendingTeams.map(t => t.replace(/^.*\//, '')).join('  ') : <span fg={GRAY}>none</span>}</text>
+			<box flexDirection="row">
+				{buttons.map((b, i) => (
+					<box key={b.action} marginLeft={i > 0 ? 1 : 0} onMouseDown={() => onAction(pr, b.action)}>
+						<text fg="#000000" bg={BUTTON_BG[b.fg]} attributes={TextAttributes.BOLD}>{b.label}</text>
 					</box>
 				))}
+				{busy ? <text fg={busy.startsWith('✓') ? 'green' : busy.startsWith('✗') ? 'red' : AMBER}>  {busy}</text> : null}
 			</box>
 		</box>
 	)
