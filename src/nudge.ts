@@ -27,12 +27,11 @@ function commonSuffix(titles: string[]): string {
 }
 
 function prLine(pr: PR, prefix: string, suffix: string): string {
-	const marks = [pr.approvals.length ? `✅${pr.approvals.length}` : '', pr.autoMerge || pr.inMergeQueue ? '🚀' : ''].filter(Boolean).join('')
 	let title = pr.title.replace(/^[A-Z]+-\d+\s+/, '')
 	if (prefix && title.startsWith(prefix)) title = title.slice(prefix.length)
 	if (suffix && title.endsWith(suffix)) title = title.slice(0, -suffix.length)
 	title = title.trim()
-	return `• ${title} ${pr.url}${marks ? ` ${marks}` : ''}`
+	return `• ${title} ${pr.url}`
 }
 
 export function batchNudgeMessages(prs: PR[]): string[] {
@@ -53,7 +52,7 @@ export function batchNudgeMessages(prs: PR[]): string[] {
 	const suffix = commonSuffix(titles)
 	const ticket = all.map(pr => pr.title.match(/^([A-Z]+-\d+)/)?.[1]).find(Boolean)
 	const shape = prefix || suffix ? ` Each title reads "${prefix}…${suffix}".` : ''
-	const header = `:wave: *Review request${ticket ? ` · ${ticket}` : ''}* — ${all.length} PR${all.length === 1 ? '' : 's'}, CI green on all.${shape} ✅ approvals · 🚀 auto-merge`
+	const header = `:wave: *Review request${ticket ? ` · ${ticket}` : ''}* — ${all.length} PR${all.length === 1 ? '' : 's'}, CI green on all.${shape}`
 	const blocks: string[] = []
 	for (const [team, list] of groups) {
 		const lines = list.map(pr => prLine(pr, prefix, suffix))
