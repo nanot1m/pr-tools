@@ -25,6 +25,9 @@ export interface PR {
 	failedRuns: string[]
 	author: string
 	myReview: string | null
+	mergeState: string
+	inMergeQueue: boolean
+	autoMerge: boolean
 }
 
 let token: string | undefined
@@ -123,6 +126,7 @@ const QUERY = `query($q:String!,$after:String){
     pageInfo{hasNextPage endCursor}
     nodes{ ... on PullRequest {
       number title url isDraft mergeable updatedAt body additions deletions
+      mergeStateStatus isInMergeQueue autoMergeRequest{enabledAt}
       author{login}
       repository{nameWithOwner}
       commits(last:1){nodes{commit{statusCheckRollup{state}}}}
@@ -139,6 +143,9 @@ type Node = {
 	url: string
 	isDraft: boolean
 	mergeable: PR['mergeable']
+	mergeStateStatus: string
+	isInMergeQueue: boolean
+	autoMergeRequest: {enabledAt: string} | null
 	updatedAt: string
 	body: string
 	additions: number
@@ -179,6 +186,9 @@ async function search(q: string, me: string): Promise<PR[]> {
 				failedRuns: [],
 				author: n.author?.login ?? '?',
 				myReview: n.latestReviews.nodes.find(r => r.author.login === me)?.state ?? null,
+				mergeState: n.mergeStateStatus,
+				inMergeQueue: n.isInMergeQueue,
+				autoMerge: n.autoMergeRequest !== null,
 			})
 		}
 		if (!data.search.pageInfo.hasNextPage) break
@@ -236,6 +246,16 @@ export async function fetchForReview(repos: string[]): Promise<PR[]> {
 export async function approve(pr: PR): Promise<string> {
 	const r = await $`gh pr review ${pr.number} --repo ${pr.repo} --approve`.quiet().nothrow()
 	return r.exitCode === 0 ? `Approved #${pr.number}` : `Approve failed: ${r.stderr.toString().trim().split('\n').pop()}`
+}
+
+export async function merge(pr: PR): Promise<string> {
+	let r = await $`gh pr merge ${pr.number} --repo ${pr.repo} --auto`.quiet().nothrow()
+	if (r.exitCode !== 0 && /merge method|strategy|--squash/i.test(r.stderr.toString())) {
+		r = await $`gh pr merge ${pr.number} --repo ${pr.repo} --auto --squash`.quiet().nothrow()
+	}
+	if (r.exitCode !== 0) return `Merge failed: ${r.stderr.toString().trim().split('\n').pop()}`
+	const out = r.stdout.toString() + r.stderr.toString()
+	return /queue/i.test(out) ? `#${pr.number} added to the merge queue` : /auto-merge|automatically/i.test(out) ? `Auto-merge enabled for #${pr.number}` : `#${pr.number}: ${out.trim().split('\n').pop() || 'merge requested'}`
 }
 
 export async function openInBrowser(pr: PR): Promise<void> {

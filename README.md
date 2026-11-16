@@ -18,7 +18,8 @@ Runs on [Bun](https://bun.sh); OpenTUI (`@opentui/react`, React 19) renders the 
 
 - Cards flow into a grid of one to three columns depending on terminal width and reflow on resize. Border colour: green CI, yellow running, red when CI failed, a thread is unresolved or the branch conflicts.
 - Each card ends with buttons. Click `[ nudge ]` to copy the Slack review request (`Hi! @team-a, @team-b, could you please review <url>`), click `[ rerun CI ]` on a red card to rerun only its failed jobs; the card shows "requesting rerun…" and polls until the checks leave the failed state. Clicks need a terminal with xterm mouse reporting (Ghostty, iTerm2, kitty, WezTerm, Terminal.app).
-- Keyboard: `[1-9]` then `n` or `c` does the same, `r` refreshes now, `q` quits.
+- `[ merge ]` runs `gh pr merge --auto`: it adds the PR to the merge queue when checks pass, or enables auto-merge until they do. The card then shows "in merge queue" or "auto-merge on" and hides the button.
+- Keyboard: `[1-9]` then `n`, `c` or `m` does the same, `r` refreshes now, `q` quits.
 - PR links are OSC 8 hyperlinks.
 
 Configuration lives in `~/.config/prs/config.json`:
