@@ -57,6 +57,7 @@ function buttonsFor(pr: PR, tab: Tab): Button[] {
 		const b: Button[] = [{label: ' nudge ', action: 'nudge', fg: 'cyan'}]
 		if (pr.failedRuns.length > 0) b.push({label: ' rerun CI ', action: 'rerun', fg: 'red'})
 		if (!pr.isDraft && !pr.inMergeQueue && !pr.autoMerge && pr.mergeable !== 'CONFLICTING') b.push({label: ' merge ', action: 'merge', fg: 'green'})
+		b.push({label: ' open ', action: 'open', fg: 'cyan'})
 		return b
 	}
 	return [{label: ' approve ', action: 'approve', fg: 'green'}, {label: ' open ', action: 'open', fg: 'cyan'}]
@@ -241,7 +242,7 @@ export function Tui({repos, interval}: {repos: string[]; interval: number}) {
 	const red = list.filter(p => p.ci === 'FAILURE' || p.ci === 'ERROR').length
 	const unresolved = list.filter(p => p.unresolved.length > 0).length
 	const waiting = list.filter(p => p.pendingTeams.length + p.pendingUsers.length > 0).length
-	const hint = tab === 'mine' ? 'n nudge · c rerun CI · m merge' : 'a approve · o open'
+	const hint = tab === 'mine' ? 'n nudge · c rerun CI · m merge · o open' : 'a approve · o open'
 	const tabLabel = (t: Tab) => {
 		const name = t === 'mine' ? 'Mine' : 'To review'
 		return t === tab && data[t] ? ` ${name} ${data[t]!.length} ` : ` ${name} `
