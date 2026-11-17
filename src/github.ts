@@ -27,7 +27,6 @@ export interface PR {
 	failedRuns: string[]
 	author: string
 	myReview: string | null
-	mergeState: string
 	inMergeQueue: boolean
 	queue: {position: number; state: string; eta: number | null} | null
 	autoMerge: boolean
@@ -140,11 +139,11 @@ async function graphql<T>(query: string, variables: Record<string, unknown>): Pr
 }
 
 const QUERY = `query($q:String!,$after:String){
-  search(query:$q,type:ISSUE,first:50,after:$after){
+  search(query:$q,type:ISSUE,first:100,after:$after){
     pageInfo{hasNextPage endCursor}
     nodes{ ... on PullRequest {
       number title url isDraft mergeable updatedAt body additions deletions
-      mergeStateStatus isInMergeQueue autoMergeRequest{enabledAt}
+      isInMergeQueue autoMergeRequest{enabledAt}
       mergeQueueEntry{position state estimatedTimeToMerge}
       author{login}
       repository{nameWithOwner}
@@ -162,7 +161,6 @@ type Node = {
 	url: string
 	isDraft: boolean
 	mergeable: PR['mergeable']
-	mergeStateStatus: string
 	isInMergeQueue: boolean
 	mergeQueueEntry: {position: number; state: string; estimatedTimeToMerge: number | null} | null
 	autoMergeRequest: {enabledAt: string} | null
@@ -207,7 +205,6 @@ async function search(q: string, me: string): Promise<PR[]> {
 				failedRuns: [],
 				author: n.author?.login ?? '?',
 				myReview: n.latestReviews.nodes.find(r => r.author.login === me)?.state ?? null,
-				mergeState: n.mergeStateStatus,
 				inMergeQueue: n.isInMergeQueue,
 				queue: n.mergeQueueEntry ? {position: n.mergeQueueEntry.position, state: n.mergeQueueEntry.state, eta: n.mergeQueueEntry.estimatedTimeToMerge} : null,
 				autoMerge: n.autoMergeRequest !== null,
