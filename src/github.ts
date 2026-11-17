@@ -300,12 +300,16 @@ export async function openInBrowser(pr: PR): Promise<void> {
 	await $`open ${pr.url}`.quiet().nothrow()
 }
 
-export async function rerunFailed(pr: PR): Promise<string> {
-	if (pr.failedRuns.length === 0) return `No failed checks on #${pr.number}`
+export async function rerunFailed(pr: PR): Promise<{message: string; accepted: number; refused: number}> {
+	if (pr.failedRuns.length === 0) return {message: `No failed checks on #${pr.number}`, accepted: 0, refused: 0}
 	const results: string[] = []
+	let accepted = 0
+	let refused = 0
 	for (const id of pr.failedRuns) {
 		const r = await $`gh run rerun ${id} --failed --repo ${pr.repo}`.quiet().nothrow()
-		results.push(r.exitCode === 0 ? `run ${id}` : `run ${id} refused: ${r.stderr.toString().trim().split('\n').pop()}`)
+		if (r.exitCode === 0) { accepted++; results.push(`run ${id}`) }
+		else { refused++; results.push(`run ${id} refused: ${r.stderr.toString().trim().split('\n').pop()}`) }
 	}
-	return `Rerunning failed jobs of #${pr.number}: ${results.join(', ')}`
+	const prefix = accepted === 0 ? '✗ ' : ''
+	return {message: `${prefix}Rerunning failed jobs of #${pr.number}: ${results.join(', ')}`, accepted, refused}
 }

@@ -259,7 +259,14 @@ export function Tui({repos, interval}: {repos: string[]; interval: number}) {
 			return
 		}
 		setBusy(b => ({...b, [key]: 'requesting rerun…'}))
-		setToast(await rerunFailed(pr))
+		const rerun = await rerunFailed(pr)
+		setToast(rerun.message)
+		if (rerun.accepted === 0) {
+			setBusy(b => ({...b, [key]: '✗ rerun refused (run still in progress?)'}))
+			setTimeout(() => setBusy(b => { const {[key]: _, ...rest} = b; return rest }), 5000)
+			return
+		}
+		setBusy(b => ({...b, [key]: '✓ rerun requested, waiting for CI…'}))
 		for (let i = 0; i < 10; i++) {
 			await new Promise(r => setTimeout(r, 3000))
 			const fresh = await fetchPRs(repos).catch(() => null)

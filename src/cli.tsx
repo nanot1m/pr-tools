@@ -53,7 +53,7 @@ if (json) {
 		console.log((await copy(msg)) ? 'Copied to clipboard:' : 'pbcopy not available, message:')
 		console.log(msg)
 	} else {
-		console.log(await rerunFailed(pr))
+		console.log((await rerunFailed(pr)).message)
 	}
 	process.exit(0)
 } else {
