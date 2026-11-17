@@ -82,6 +82,18 @@ function Button({label, color, pressed, onPress}: {label: string; color: string;
 	)
 }
 
+function TabButton({label, color, active, flash, onPress}: {label: string; color: string; active: boolean; flash: boolean; onPress: () => void}) {
+	const [down, setDown] = useState(false)
+	const pressed = down || flash
+	const fg = pressed ? (active ? color : '#ffffff') : active ? '#ffffff' : color
+	const bg = pressed ? (active ? '#ffffff' : color) : active ? color : undefined
+	return (
+		<box onMouseDown={() => setDown(true)} onMouseUp={() => { if (down) onPress(); setDown(false) }} onMouseOut={() => setDown(false)}>
+			<text fg={fg} bg={bg} attributes={TextAttributes.BOLD}>{label}</text>
+		</box>
+	)
+}
+
 function Spinner() {
 	const [i, setI] = useState(0)
 	useAnimationTick(12, () => setI(n => (n + 1) % SPINNER.length))
@@ -279,7 +291,7 @@ export function Tui({repos, interval}: {repos: string[]; interval: number}) {
 
 	const sel = selected[tab] === null ? null : Math.min(selected[tab]!, Math.max(0, list.length - 1))
 	const selPr: PR | undefined = sel === null ? undefined : list[sel]
-	const switchTab = (t: Tab) => setTab(t)
+	const switchTab = (t: Tab) => { press(`tab:${t}`); setTab(t) }
 	const select = useCallback((i: number | null) => {
 		setSelected(s => ({...s, [tab]: i}))
 		if (i !== null) setPage(p => ({...p, [tab]: Math.floor(i / layout.perPage)}))
@@ -338,8 +350,8 @@ export function Tui({repos, interval}: {repos: string[]; interval: number}) {
 	return (
 		<box flexDirection="column" width={cols} height={rows}>
 			<box flexDirection="row">
-				<box onMouseDown={() => switchTab('mine')}><text fg={tab === 'mine' ? '#ffffff' : ACCENT} bg={tab === 'mine' ? ACCENT : undefined} attributes={TextAttributes.BOLD}>{tabLabel('mine')}</text></box>
-				<box marginLeft={2} onMouseDown={() => switchTab('review')}><text fg={tab === 'review' ? '#ffffff' : PURPLE} bg={tab === 'review' ? PURPLE : undefined} attributes={TextAttributes.BOLD}>{tabLabel('review')}</text></box>
+				<TabButton label={tabLabel('mine')} color={ACCENT} active={tab === 'mine'} flash={pressed === 'tab:mine'} onPress={() => switchTab('mine')} />
+				<box marginLeft={2}><TabButton label={tabLabel('review')} color={PURPLE} active={tab === 'review'} flash={pressed === 'tab:review'} onPress={() => switchTab('review')} /></box>
 				{tab === 'mine' ? <box marginLeft={4}><Button label=" nudge all " color={BUTTON_BG.cyan} pressed={pressed === 'nudgeAll'} onPress={() => { press('nudgeAll'); nudgeAll() }} /></box> : null}
 				{list.some(pr => pr.ci === 'FAILURE' || pr.ci === 'ERROR' || pr.unresolved.length > 0 || pr.mergeable === 'CONFLICTING') ? <box marginLeft={1}><Button label=" copy all fails " color={BUTTON_BG.red} pressed={pressed === 'copyFailAll'} onPress={() => { press('copyFailAll'); copyFailAll() }} /></box> : null}
 				<box marginLeft={1}><Button label={compact ? ' full view ' : ' compact '} color={'#c9c9c9'} pressed={pressed === 'compact'} onPress={() => { press('compact'); setCompact(c => !c) }} /></box>
