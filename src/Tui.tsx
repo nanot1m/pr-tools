@@ -68,13 +68,21 @@ function buttonsFor(pr: PR, tab: Tab): Button[] {
 	return [{label: ' approve ', action: 'approve', fg: 'green'}, {label: ' open ', action: 'open', fg: 'cyan'}]
 }
 
+function Button({label, color, pressed, onPress}: {label: string; color: string; pressed: boolean; onPress: () => void}) {
+	return (
+		<box onMouseDown={onPress}>
+			<text fg={pressed ? color : '#000000'} bg={pressed ? '#000000' : color} attributes={TextAttributes.BOLD}>{pressed ? `▸${label.trim()}◂` : label}</text>
+		</box>
+	)
+}
+
 function Spinner() {
 	const [i, setI] = useState(0)
 	useAnimationTick(12, () => setI(n => (n + 1) % SPINNER.length))
 	return <span fg={AMBER}>{SPINNER[i]}</span>
 }
 
-const Card = memo(function Card({pr, width, tab, busy, selected, onAction, onSelect}: {pr: PR; width: number; tab: Tab; busy?: string; selected: boolean; onAction: (pr: PR, a: Action) => void; onSelect: (pr: PR) => void}) {
+const Card = memo(function Card({pr, width, tab, busy, selected, pressed, onAction, onSelect}: {pr: PR; width: number; tab: Tab; busy?: string; selected: boolean; pressed?: Action; onAction: (pr: PR, a: Action) => void; onSelect: (pr: PR) => void}) {
 	const color = cardColor(pr)
 	const {glyph, text} = ciLabel(pr)
 	const buttons = buttonsFor(pr, tab)
@@ -100,8 +108,8 @@ const Card = memo(function Card({pr, width, tab, busy, selected, onAction, onSel
 			<text {...LINE}><span fg={AMBER}>users </span>{pr.pendingUsers.length ? pr.pendingUsers.join('  ') : <span fg={GRAY}>none</span>}</text>
 			<box flexDirection="row">
 				{buttons.map((b, i) => (
-					<box key={b.action} marginLeft={i > 0 ? 1 : 0} onMouseDown={() => onAction(pr, b.action)}>
-						<text fg="#000000" bg={BUTTON_BG[b.fg]} attributes={TextAttributes.BOLD}>{b.label}</text>
+					<box key={b.action} marginLeft={i > 0 ? 1 : 0}>
+						<Button label={b.label} color={BUTTON_BG[b.fg]} pressed={pressed === b.action} onPress={() => onAction(pr, b.action)} />
 					</box>
 				))}
 				{busy ? <text fg={busy.startsWith('✓') ? 'green' : busy.startsWith('✗') ? 'red' : AMBER}>  {busy}</text> : null}
@@ -148,6 +156,13 @@ export function Tui({repos, interval}: {repos: string[]; interval: number}) {
 	const [updatedAt, setUpdatedAt] = useState<Date | null>(null)
 	const [page, setPage] = useState<Record<Tab, number>>({mine: 0, review: 0})
 	const [compact, setCompact] = useState(false)
+	const [pressed, setPressed] = useState<string | null>(null)
+	const pressTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+	const press = useCallback((key: string) => {
+		setPressed(key)
+		if (pressTimer.current) clearTimeout(pressTimer.current)
+		pressTimer.current = setTimeout(() => setPressed(null), 250)
+	}, [])
 
 	const [retryAt, setRetryAt] = useState<number | null>(null)
 	const inFlight = useRef<Set<Tab>>(new Set())
@@ -194,6 +209,7 @@ export function Tui({repos, interval}: {repos: string[]; interval: number}) {
 
 	const act = useCallback(async (pr: PR, action: Action) => {
 		const key = pr.url
+		press(`${pr.url}:${action}`)
 		if (action === 'nudge') {
 			const ok = await copy(nudgeMessage(pr))
 			setBusy(b => ({...b, [key]: ok ? '✓ Copied to clipboard' : '✗ pbcopy failed'}))
@@ -234,7 +250,7 @@ export function Tui({repos, interval}: {repos: string[]; interval: number}) {
 			if (!me || me.ci !== 'FAILURE') break
 		}
 		setBusy(b => { const {[key]: _, ...rest} = b; return rest })
-	}, [repos, refresh])
+	}, [repos, refresh, press])
 
 	const list = data[tab] ?? []
 	const layout = useMemo(() => {
@@ -284,11 +300,11 @@ export function Tui({repos, interval}: {repos: string[]; interval: number}) {
 	}, [list])
 
 	useKeyboard(key => {
-		if (key.name === 'F' || (key.shift && key.name === 'f')) { copyFailAll(); return }
-		if (key.name === 'N' || (key.shift && key.name === 'n')) { if (tab === 'mine') nudgeAll(); return }
+		if (key.name === 'F' || (key.shift && key.name === 'f')) { press('copyFailAll'); copyFailAll(); return }
+		if (key.name === 'N' || (key.shift && key.name === 'n')) { if (tab === 'mine') { press('nudgeAll'); nudgeAll() } return }
 		if (key.name === 'q' || (key.ctrl && key.name === 'c')) { renderer.destroy(); process.exit(0) }
 		if (key.name === 'r') { refresh(tab); return }
-		if (key.name === 'v') { setCompact(c => !c); return }
+		if (key.name === 'v') { press('compact'); setCompact(c => !c); return }
 		if (key.name === 'tab' || key.name === 't') { switchTab(tab === 'mine' ? 'review' : 'mine'); return }
 		if (key.name === 'escape') { select(null); return }
 		if (!list.length) return
@@ -318,9 +334,9 @@ export function Tui({repos, interval}: {repos: string[]; interval: number}) {
 			<box flexDirection="row">
 				<box onMouseDown={() => switchTab('mine')}><text fg={tab === 'mine' ? '#ffffff' : '#5fafff'} bg={tab === 'mine' ? '#005fd7' : undefined} attributes={TextAttributes.BOLD}>{tabLabel('mine')}</text></box>
 				<box marginLeft={2} onMouseDown={() => switchTab('review')}><text fg={tab === 'review' ? '#ffffff' : '#d75fd7'} bg={tab === 'review' ? '#8700af' : undefined} attributes={TextAttributes.BOLD}>{tabLabel('review')}</text></box>
-				{tab === 'mine' ? <box marginLeft={4} onMouseDown={nudgeAll}><text fg="#000000" bg={BUTTON_BG.cyan} attributes={TextAttributes.BOLD}> nudge all </text></box> : null}
-				{list.some(pr => pr.ci === 'FAILURE' || pr.ci === 'ERROR' || pr.unresolved.length > 0 || pr.mergeable === 'CONFLICTING') ? <box marginLeft={1} onMouseDown={copyFailAll}><text fg="#000000" bg={BUTTON_BG.red} attributes={TextAttributes.BOLD}> copy all fails </text></box> : null}
-				<box marginLeft={1} onMouseDown={() => setCompact(c => !c)}><text fg="#000000" bg={GRAY} attributes={TextAttributes.BOLD}>{compact ? ' full view ' : ' compact '}</text></box>
+				{tab === 'mine' ? <box marginLeft={4}><Button label=" nudge all " color={BUTTON_BG.cyan} pressed={pressed === 'nudgeAll'} onPress={() => { press('nudgeAll'); nudgeAll() }} /></box> : null}
+				{list.some(pr => pr.ci === 'FAILURE' || pr.ci === 'ERROR' || pr.unresolved.length > 0 || pr.mergeable === 'CONFLICTING') ? <box marginLeft={1}><Button label=" copy all fails " color={BUTTON_BG.red} pressed={pressed === 'copyFailAll'} onPress={() => { press('copyFailAll'); copyFailAll() }} /></box> : null}
+				<box marginLeft={1}><Button label={compact ? ' full view ' : ' compact '} color={GRAY} pressed={pressed === 'compact'} onPress={() => { press('compact'); setCompact(c => !c) }} /></box>
 			</box>
 			<box border borderStyle="rounded" borderColor="blue" paddingLeft={1} paddingRight={1} height={3}>
 				<text {...LINE}>
@@ -342,7 +358,7 @@ export function Tui({repos, interval}: {repos: string[]; interval: number}) {
 							<box key={pr.url} marginLeft={ci > 0 ? GAP : 0}>
 								{compact
 									? <CompactCard pr={pr} tab={tab} selected={pr === selPr} onSelect={selectPr} />
-									: <Card pr={pr} width={layout.w} tab={tab} busy={busy[pr.url]} selected={pr === selPr} onAction={act} onSelect={selectPr} />}
+									: <Card pr={pr} width={layout.w} tab={tab} busy={busy[pr.url]} selected={pr === selPr} pressed={pressed?.startsWith(pr.url + ':') ? (pressed.slice(pr.url.length + 1) as Action) : undefined} onAction={act} onSelect={selectPr} />}
 							</box>
 						))}
 					</box>
@@ -352,8 +368,13 @@ export function Tui({repos, interval}: {repos: string[]; interval: number}) {
 				<text fg={GRAY} {...LINE}>
 					<span attributes={TextAttributes.BOLD}>↑↓←→</span> select · <span attributes={TextAttributes.BOLD}>Esc</span> clear · {hint}{tab === 'mine' ? <span> · <span attributes={TextAttributes.BOLD}>N</span> nudge all</span> : null} · <span attributes={TextAttributes.BOLD}>F</span> copy all fails · <span attributes={TextAttributes.BOLD}>PgUp/PgDn</span> page · <span attributes={TextAttributes.BOLD}>Tab</span> switch · <span attributes={TextAttributes.BOLD}>v</span> {compact ? 'full' : 'compact'} · <span attributes={TextAttributes.BOLD}>r</span> refresh · <span attributes={TextAttributes.BOLD}>q</span> quit · every {interval}s
 				</text>
-				<text fg="green" {...LINE}>{toast ?? (compact && selPr ? <span fg={cardColor(selPr)}>#{selPr.number} {selPr.title}{busy[selPr.url] ? `  ${busy[selPr.url]}` : ''}</span> : ' ')}</text>
+				<text {...LINE}>{compact && selPr ? <span fg={cardColor(selPr)}>#{selPr.number} {selPr.title}{busy[selPr.url] ? `  ${busy[selPr.url]}` : ''}</span> : ' '}</text>
 			</box>
+			{toast ? (
+				<box position="absolute" top={1} left={Math.max(0, Math.floor((cols - Math.min(toast.length + 4, cols)) / 2))} zIndex={10} border borderStyle="rounded" borderColor={toast.startsWith('✗') || toast.startsWith('Merge failed') ? 'red' : 'green'} backgroundColor="#1c1c1c" paddingLeft={1} paddingRight={1} width={Math.min(toast.length + 4, cols)} height={3}>
+					<text fg={toast.startsWith('✗') || toast.startsWith('Merge failed') ? 'red' : 'green'} attributes={TextAttributes.BOLD} {...LINE}>{toast}</text>
+				</box>
+			) : null}
 		</box>
 	)
 }
