@@ -77,7 +77,7 @@ const Card = memo(function Card({pr, width, tab, busy, selected, onAction, onSel
 	const {glyph, text} = ciLabel(pr)
 	const buttons = buttonsFor(pr, tab)
 	return (
-		<box flexDirection="column" border borderStyle={selected ? "double" : "rounded"} borderColor={selected ? "#ffffff" : color} width={width} height={CARD_H} paddingLeft={1} paddingRight={1} onMouseDown={() => onSelect(pr)}>
+		<box flexDirection="column" border borderStyle={selected ? "double" : "rounded"} borderColor={color} width={width} height={CARD_H} paddingLeft={1} paddingRight={1} onMouseDown={() => onSelect(pr)}>
 			<text {...LINE}>
 				<span fg={color}>{glyph} </span>
 				<span attributes={TextAttributes.BOLD}><a href={pr.url}>{pr.title}</a></span>
