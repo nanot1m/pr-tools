@@ -255,11 +255,14 @@ export async function fetchPRs(repos: string[]): Promise<PR[]> {
 export async function fetchForReview(repos: string[]): Promise<PR[]> {
 	const me = await getLogin()
 	const orgs = [...new Set(repos.map(r => r.split('/')[0]))]
-	const [results, teammates] = await Promise.all([
+	const [requested, reviewed, teammates] = await Promise.all([
 		search([...base(repos), 'review-requested:@me'].join(' '), me),
+		search([...base(repos), 'reviewed-by:@me'].join(' '), me),
 		Promise.all(orgs.map(async o => Promise.all((await getTeams(o)).map(t => getTeamMembers(o, t)))))
 			.then(sets => new Set(sets.flat().flatMap(m => [...m]))),
 	])
+	const seen = new Set<string>()
+	const results = [...requested, ...reviewed].filter(pr => !seen.has(pr.url) && seen.add(pr.url))
 	return results
 		.filter(pr => pr.author !== me && pr.myReview !== 'APPROVED' && !pr.isDraft)
 		.filter(pr => !pr.approvals.some(a => teammates.has(a)))
