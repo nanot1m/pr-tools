@@ -244,7 +244,15 @@ export function Tui({repos, interval}: {repos: string[]; interval: number}) {
 		setToast((await copy(parts[i])) ? `✓ Copied batch nudge ${which}${next}` : '✗ pbcopy failed')
 	}, [list])
 
+	const copyFailAll = useCallback(async () => {
+		const failing = list.filter(pr => pr.ci === 'FAILURE' || pr.ci === 'ERROR' || pr.unresolved.length > 0 || pr.mergeable === 'CONFLICTING')
+		if (!failing.length) { setToast('nothing is failing'); return }
+		const text = failing.map(failureReport).join('\n\n' + '='.repeat(60) + '\n\n')
+		setToast((await copy(text)) ? `✓ Copied failure report for ${failing.length} PR${failing.length === 1 ? '' : 's'}` : '✗ pbcopy failed')
+	}, [list])
+
 	useKeyboard(key => {
+		if (key.name === 'F' || (key.shift && key.name === 'f')) { copyFailAll(); return }
 		if (key.name === 'N' || (key.shift && key.name === 'n')) { if (tab === 'mine') nudgeAll(); return }
 		if (key.name === 'q' || (key.ctrl && key.name === 'c')) { renderer.destroy(); process.exit(0) }
 		if (key.name === 'r') { refresh(tab); return }
@@ -278,6 +286,7 @@ export function Tui({repos, interval}: {repos: string[]; interval: number}) {
 				<box onMouseDown={() => switchTab('mine')}><text fg={tab === 'mine' ? '#ffffff' : '#5fafff'} bg={tab === 'mine' ? '#005fd7' : undefined} attributes={TextAttributes.BOLD}>{tabLabel('mine')}</text></box>
 				<box marginLeft={2} onMouseDown={() => switchTab('review')}><text fg={tab === 'review' ? '#ffffff' : '#d75fd7'} bg={tab === 'review' ? '#8700af' : undefined} attributes={TextAttributes.BOLD}>{tabLabel('review')}</text></box>
 				{tab === 'mine' ? <box marginLeft={4} onMouseDown={nudgeAll}><text fg="#000000" bg={BUTTON_BG.cyan} attributes={TextAttributes.BOLD}> nudge all </text></box> : null}
+				{list.some(pr => pr.ci === 'FAILURE' || pr.ci === 'ERROR' || pr.unresolved.length > 0 || pr.mergeable === 'CONFLICTING') ? <box marginLeft={1} onMouseDown={copyFailAll}><text fg="#000000" bg={BUTTON_BG.red} attributes={TextAttributes.BOLD}> copy all fails </text></box> : null}
 			</box>
 			<box border borderStyle="rounded" borderColor="blue" paddingLeft={1} paddingRight={1} height={3}>
 				<text {...LINE}>
@@ -305,7 +314,7 @@ export function Tui({repos, interval}: {repos: string[]; interval: number}) {
 			</box>
 			<box flexDirection="column" height={2}>
 				<text fg={GRAY} {...LINE}>
-					<span attributes={TextAttributes.BOLD}>↑↓←→</span> select · <span attributes={TextAttributes.BOLD}>Esc</span> clear · {hint}{tab === 'mine' ? <span> · <span attributes={TextAttributes.BOLD}>N</span> nudge all</span> : null} · <span attributes={TextAttributes.BOLD}>PgUp/PgDn</span> page · <span attributes={TextAttributes.BOLD}>Tab</span> switch · <span attributes={TextAttributes.BOLD}>r</span> refresh · <span attributes={TextAttributes.BOLD}>q</span> quit · every {interval}s
+					<span attributes={TextAttributes.BOLD}>↑↓←→</span> select · <span attributes={TextAttributes.BOLD}>Esc</span> clear · {hint}{tab === 'mine' ? <span> · <span attributes={TextAttributes.BOLD}>N</span> nudge all</span> : null} · <span attributes={TextAttributes.BOLD}>F</span> copy all fails · <span attributes={TextAttributes.BOLD}>PgUp/PgDn</span> page · <span attributes={TextAttributes.BOLD}>Tab</span> switch · <span attributes={TextAttributes.BOLD}>r</span> refresh · <span attributes={TextAttributes.BOLD}>q</span> quit · every {interval}s
 				</text>
 				<text fg="green" {...LINE}>{toast ?? ' '}</text>
 			</box>
