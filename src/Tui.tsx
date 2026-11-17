@@ -25,6 +25,7 @@ const AMBER = '#d08c2a'
 const QUEUE = '#b8860b'
 const ACCENT = '#5b7fd6'
 const PURPLE = '#9a6fc9'
+const TOAST_BG = '#262a33'
 const BUTTON_BG: Record<string, string> = {cyan: '#79c7e3', green: '#8fd3a4', red: '#f3a09c'}
 const LINE = {truncate: true, wrapMode: 'none'} as const
 
@@ -388,11 +389,15 @@ export function Tui({repos, interval}: {repos: string[]; interval: number}) {
 				</text>
 				<text {...LINE}>{compact && selPr ? <span fg={cardColor(selPr)}>#{selPr.number} {selPr.title}{busy[selPr.url] ? `  ${busy[selPr.url]}` : ''}</span> : ' '}</text>
 			</box>
-			{toast ? (
-				<box position="absolute" top={1} left={Math.max(0, Math.floor((cols - Math.min(toast.length + 4, cols)) / 2))} zIndex={10} border borderStyle="rounded" borderColor={toast.startsWith('✗') || toast.startsWith('Merge failed') ? DANGER : SUCCESS} paddingLeft={1} paddingRight={1} width={Math.min(toast.length + 4, cols)} height={3}>
-					<text fg={toast.startsWith('✗') || toast.startsWith('Merge failed') ? DANGER : SUCCESS} attributes={TextAttributes.BOLD} {...LINE}>{toast}</text>
-				</box>
-			) : null}
+			{toast ? (() => {
+				const bad = toast.startsWith('✗') || toast.startsWith('Merge failed')
+				const w = Math.min(toast.length + 4, cols)
+				return (
+					<box position="absolute" top={1} left={Math.max(0, Math.floor((cols - w) / 2))} zIndex={10} border borderStyle="rounded" borderColor={bad ? DANGER : SUCCESS} backgroundColor={TOAST_BG} paddingLeft={1} paddingRight={1} width={w} height={3}>
+						<text fg={bad ? BUTTON_BG.red : BUTTON_BG.green} bg={TOAST_BG} attributes={TextAttributes.BOLD} {...LINE}>{toast}</text>
+					</box>
+				)
+			})() : null}
 		</box>
 	)
 }
