@@ -19,9 +19,13 @@ interface Button { label: string; action: Action; fg: string }
 
 const SPINNER = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏']
 const GRAY = '#8a8a8a'
-const QUEUE = '#bf8700'
-const AMBER = '#d78700'
-const BUTTON_BG: Record<string, string> = {cyan: '#00d7d7', green: '#5fd75f', red: '#ff5f5f'}
+const SUCCESS = '#3a9d5d'
+const DANGER = '#d9534f'
+const AMBER = '#d08c2a'
+const QUEUE = '#b8860b'
+const ACCENT = '#5b7fd6'
+const PURPLE = '#9a6fc9'
+const BUTTON_BG: Record<string, string> = {cyan: '#79c7e3', green: '#8fd3a4', red: '#f3a09c'}
 const LINE = {truncate: true, wrapMode: 'none'} as const
 
 function ago(iso: string): string {
@@ -32,11 +36,11 @@ function ago(iso: string): string {
 }
 
 function cardColor(pr: PR): string {
-	if (pr.queue?.state === 'UNMERGEABLE') return 'red'
+	if (pr.queue?.state === 'UNMERGEABLE') return DANGER
 	if (pr.inMergeQueue) return QUEUE
-	if (pr.unresolved.length > 0 || pr.mergeable === 'CONFLICTING' || pr.ci === 'FAILURE' || pr.ci === 'ERROR') return 'red'
+	if (pr.unresolved.length > 0 || pr.mergeable === 'CONFLICTING' || pr.ci === 'FAILURE' || pr.ci === 'ERROR') return DANGER
 	if (pr.ci === 'PENDING' || pr.ci === 'EXPECTED') return AMBER
-	if (pr.ci === 'SUCCESS') return 'green'
+	if (pr.ci === 'SUCCESS') return SUCCESS
 	return GRAY
 }
 
@@ -69,9 +73,11 @@ function buttonsFor(pr: PR, tab: Tab): Button[] {
 }
 
 function Button({label, color, pressed, onPress}: {label: string; color: string; pressed: boolean; onPress: () => void}) {
+	const [down, setDown] = useState(false)
+	const active = pressed || down
 	return (
-		<box onMouseDown={onPress}>
-			<text fg={pressed ? color : '#000000'} bg={pressed ? '#000000' : color} attributes={TextAttributes.BOLD}>{pressed ? `▸${label.trim()}◂` : label}</text>
+		<box onMouseDown={() => setDown(true)} onMouseUp={() => { if (down) onPress(); setDown(false) }} onMouseOut={() => setDown(false)}>
+			<text fg={active ? color : '#000000'} bg={active ? '#000000' : color} attributes={TextAttributes.BOLD}>{active ? `▸${label.trim()}◂` : label}</text>
 		</box>
 	)
 }
@@ -93,16 +99,16 @@ const Card = memo(function Card({pr, width, tab, busy, selected, pressed, onActi
 				<span attributes={TextAttributes.BOLD}><a href={pr.url}>{pr.title}</a></span>
 				<span fg={GRAY}>  #{pr.number}</span>
 				{pr.isDraft ? <span fg={GRAY}> draft</span> : null}
-				{tab === 'review' ? <span fg="magenta">  {pr.author}</span> : null}
+				{tab === 'review' ? <span fg={PURPLE}>  {pr.author}</span> : null}
 			</text>
 			<text {...LINE}>
 				<span fg={color}>{queueLabel(pr) ?? text}</span>
-				{pr.mergeable === 'CONFLICTING' ? <span fg="red"> · conflicts</span> : null}
-				{!queueLabel(pr) && pr.autoMerge ? <span fg="green"> · auto-merge</span> : null}
-				{pr.unresolved.length > 0 ? <span fg="red"> · ✎ {pr.unresolved.length} unresolved</span> : null}
-				{pr.changesRequested.length > 0 ? <span fg="red"> · changes requested</span> : null}
+				{pr.mergeable === 'CONFLICTING' ? <span fg={DANGER}> · conflicts</span> : null}
+				{!queueLabel(pr) && pr.autoMerge ? <span fg={SUCCESS}> · auto-merge</span> : null}
+				{pr.unresolved.length > 0 ? <span fg={DANGER}> · ✎ {pr.unresolved.length} unresolved</span> : null}
+				{pr.changesRequested.length > 0 ? <span fg={DANGER}> · changes requested</span> : null}
 				<span fg={GRAY}> · {ago(pr.updatedAt)}</span>
-				{pr.approvals.length > 0 ? <span fg="green"> · ✓ {pr.approvals.join(', ')}</span> : <span fg={GRAY}> · no approvals</span>}
+				{pr.approvals.length > 0 ? <span fg={SUCCESS}> · ✓ {pr.approvals.join(', ')}</span> : <span fg={GRAY}> · no approvals</span>}
 			</text>
 			<text {...LINE}><span fg={AMBER}>teams </span>{pr.pendingTeams.length ? pr.pendingTeams.map(t => t.replace(/^.*\//, '')).join('  ') : <span fg={GRAY}>none</span>}</text>
 			<text {...LINE}><span fg={AMBER}>users </span>{pr.pendingUsers.length ? pr.pendingUsers.join('  ') : <span fg={GRAY}>none</span>}</text>
@@ -112,7 +118,7 @@ const Card = memo(function Card({pr, width, tab, busy, selected, pressed, onActi
 						<Button label={b.label} color={BUTTON_BG[b.fg]} pressed={pressed === b.action} onPress={() => onAction(pr, b.action)} />
 					</box>
 				))}
-				{busy ? <text fg={busy.startsWith('✓') ? 'green' : busy.startsWith('✗') ? 'red' : AMBER}>  {busy}</text> : null}
+				{busy ? <text fg={busy.startsWith('✓') ? SUCCESS : busy.startsWith('✗') ? DANGER : AMBER}>  {busy}</text> : null}
 			</box>
 		</box>
 	)
@@ -131,7 +137,7 @@ const CompactCard = memo(function CompactCard({pr, tab, selected, onSelect}: {pr
 		<box flexDirection="column" border borderStyle={selected ? 'double' : 'rounded'} borderColor={color} width={COMPACT_W} height={COMPACT_H} paddingLeft={1} onMouseDown={() => onSelect(pr)}>
 			<text {...LINE}><span fg={color}>{ciLabel(pr).glyph} </span><span attributes={TextAttributes.BOLD}><a href={pr.url}>#{pr.number}</a></span></text>
 			<text {...LINE}>{marks ? <span fg={color}>{marks}</span> : <span fg={GRAY}>·</span>}</text>
-			<text {...LINE}>{tab === 'mine' && pr.approvals.length > 0 ? <span fg="green">✓ {pr.approvals.length} </span> : null}{pending > 0 ? <span fg={AMBER}>◌ {pending}</span> : null}</text>
+			<text {...LINE}>{tab === 'mine' && pr.approvals.length > 0 ? <span fg={SUCCESS}>✓ {pr.approvals.length} </span> : null}{pending > 0 ? <span fg={AMBER}>◌ {pending}</span> : null}</text>
 			<text {...LINE}><span fg={GRAY}>{ago(pr.updatedAt)}</span></text>
 		</box>
 	)
@@ -332,25 +338,25 @@ export function Tui({repos, interval}: {repos: string[]; interval: number}) {
 	return (
 		<box flexDirection="column" width={cols} height={rows}>
 			<box flexDirection="row">
-				<box onMouseDown={() => switchTab('mine')}><text fg={tab === 'mine' ? '#ffffff' : '#5fafff'} bg={tab === 'mine' ? '#005fd7' : undefined} attributes={TextAttributes.BOLD}>{tabLabel('mine')}</text></box>
-				<box marginLeft={2} onMouseDown={() => switchTab('review')}><text fg={tab === 'review' ? '#ffffff' : '#d75fd7'} bg={tab === 'review' ? '#8700af' : undefined} attributes={TextAttributes.BOLD}>{tabLabel('review')}</text></box>
+				<box onMouseDown={() => switchTab('mine')}><text fg={tab === 'mine' ? '#ffffff' : ACCENT} bg={tab === 'mine' ? ACCENT : undefined} attributes={TextAttributes.BOLD}>{tabLabel('mine')}</text></box>
+				<box marginLeft={2} onMouseDown={() => switchTab('review')}><text fg={tab === 'review' ? '#ffffff' : PURPLE} bg={tab === 'review' ? PURPLE : undefined} attributes={TextAttributes.BOLD}>{tabLabel('review')}</text></box>
 				{tab === 'mine' ? <box marginLeft={4}><Button label=" nudge all " color={BUTTON_BG.cyan} pressed={pressed === 'nudgeAll'} onPress={() => { press('nudgeAll'); nudgeAll() }} /></box> : null}
 				{list.some(pr => pr.ci === 'FAILURE' || pr.ci === 'ERROR' || pr.unresolved.length > 0 || pr.mergeable === 'CONFLICTING') ? <box marginLeft={1}><Button label=" copy all fails " color={BUTTON_BG.red} pressed={pressed === 'copyFailAll'} onPress={() => { press('copyFailAll'); copyFailAll() }} /></box> : null}
-				<box marginLeft={1}><Button label={compact ? ' full view ' : ' compact '} color={GRAY} pressed={pressed === 'compact'} onPress={() => { press('compact'); setCompact(c => !c) }} /></box>
+				<box marginLeft={1}><Button label={compact ? ' full view ' : ' compact '} color={'#c9c9c9'} pressed={pressed === 'compact'} onPress={() => { press('compact'); setCompact(c => !c) }} /></box>
 			</box>
-			<box border borderStyle="rounded" borderColor="blue" paddingLeft={1} paddingRight={1} height={3}>
+			<box border borderStyle="rounded" borderColor={ACCENT} paddingLeft={1} paddingRight={1} height={3}>
 				<text {...LINE}>
 					<span attributes={TextAttributes.BOLD}>{tab === 'mine' ? 'My open pull requests' : 'Awaiting my review'}</span>
 					<span>  </span>{loading || data[tab] === null ? <Spinner /> : <span> </span>}
 					<span attributes={TextAttributes.BOLD}>  {list.length} open</span>
-					<span fg="red">   ✗ {red} red CI</span>
-					<span fg="red">   ✎ {unresolved} unresolved</span>
+					<span fg={DANGER}>   ✗ {red} red CI</span>
+					<span fg={DANGER}>   ✎ {unresolved} unresolved</span>
 					<span fg={AMBER}>   ◌ {waiting} awaiting review</span>
 					<span fg={GRAY}>   {repos.join(' ')}{updatedAt ? ` · ${updatedAt.toTimeString().slice(0, 5)}` : ''}</span>
 					{pageCount > 1 ? <span fg={GRAY}>   page {current + 1}/{pageCount}</span> : null}
 				</text>
 			</box>
-			{retryAt ? <text fg={AMBER} {...LINE}>GitHub rate limit hit · retrying at {new Date(retryAt).toTimeString().slice(0, 8)}</text> : error ? <text fg="red" {...LINE}>{error}</text> : null}
+			{retryAt ? <text fg={AMBER} {...LINE}>GitHub rate limit hit · retrying at {new Date(retryAt).toTimeString().slice(0, 8)}</text> : error ? <text fg={DANGER} {...LINE}>{error}</text> : null}
 			<box flexDirection="column" flexGrow={1}>
 				{cardRows.map((row, ri) => (
 					<box key={ri} flexDirection="row">
@@ -371,8 +377,8 @@ export function Tui({repos, interval}: {repos: string[]; interval: number}) {
 				<text {...LINE}>{compact && selPr ? <span fg={cardColor(selPr)}>#{selPr.number} {selPr.title}{busy[selPr.url] ? `  ${busy[selPr.url]}` : ''}</span> : ' '}</text>
 			</box>
 			{toast ? (
-				<box position="absolute" top={1} left={Math.max(0, Math.floor((cols - Math.min(toast.length + 4, cols)) / 2))} zIndex={10} border borderStyle="rounded" borderColor={toast.startsWith('✗') || toast.startsWith('Merge failed') ? 'red' : 'green'} backgroundColor="#1c1c1c" paddingLeft={1} paddingRight={1} width={Math.min(toast.length + 4, cols)} height={3}>
-					<text fg={toast.startsWith('✗') || toast.startsWith('Merge failed') ? 'red' : 'green'} attributes={TextAttributes.BOLD} {...LINE}>{toast}</text>
+				<box position="absolute" top={1} left={Math.max(0, Math.floor((cols - Math.min(toast.length + 4, cols)) / 2))} zIndex={10} border borderStyle="rounded" borderColor={toast.startsWith('✗') || toast.startsWith('Merge failed') ? DANGER : SUCCESS} paddingLeft={1} paddingRight={1} width={Math.min(toast.length + 4, cols)} height={3}>
+					<text fg={toast.startsWith('✗') || toast.startsWith('Merge failed') ? DANGER : SUCCESS} attributes={TextAttributes.BOLD} {...LINE}>{toast}</text>
 				</box>
 			) : null}
 		</box>
