@@ -4,6 +4,7 @@ import {TextAttributes} from '@opentui/core'
 import {useAnimationTick, useKeyboard, useRenderer, useTerminalDimensions} from '@opentui/react'
 import {approve, failureReport, fetchForReview, fetchPRs, merge, openInBrowser, RateLimitError, rerunFailed, type PR} from './github'
 import {batchNudgeMessages, copy, nudgeMessage} from './nudge'
+import {runClaudeReview, type ReviewRun} from './review'
 
 const GAP = 1
 const MIN_CARD = 64
@@ -14,7 +15,7 @@ const COMPACT_H = 6
 const CHROME_H = 1 + 3 + 3
 
 type Tab = 'mine' | 'review'
-type Action = 'nudge' | 'rerun' | 'approve' | 'open' | 'merge' | 'copyfail'
+type Action = 'nudge' | 'rerun' | 'approve' | 'open' | 'merge' | 'copyfail' | 'review'
 interface Button { label: string; action: Action; fg: string }
 
 const SPINNER = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏']
@@ -26,7 +27,7 @@ const QUEUE = '#b8860b'
 const ACCENT = '#5b7fd6'
 const PURPLE = '#9a6fc9'
 const TOAST_BG = '#262a33'
-const BUTTON_BG: Record<string, string> = {cyan: '#79c7e3', green: '#8fd3a4', red: '#f3a09c'}
+const BUTTON_BG: Record<string, string> = {cyan: '#79c7e3', green: '#8fd3a4', red: '#f3a09c', purple: '#c9b3e6'}
 const LINE = {truncate: true, wrapMode: 'none'} as const
 
 function ago(iso: string): string {
@@ -68,9 +69,10 @@ function buttonsFor(pr: PR, tab: Tab): Button[] {
 		if (pr.ci === 'FAILURE' || pr.ci === 'ERROR' || pr.unresolved.length > 0 || pr.mergeable === 'CONFLICTING') b.push({label: ' copy fail ', action: 'copyfail', fg: 'red'})
 		if (!pr.isDraft && !pr.inMergeQueue && !pr.autoMerge && pr.mergeable !== 'CONFLICTING') b.push({label: ' merge ', action: 'merge', fg: 'green'})
 		b.push({label: ' open ', action: 'open', fg: 'cyan'})
+		b.push({label: ' claude ', action: 'review', fg: 'purple'})
 		return b
 	}
-	return [{label: ' approve ', action: 'approve', fg: 'green'}, {label: ' open ', action: 'open', fg: 'cyan'}]
+	return [{label: ' approve ', action: 'approve', fg: 'green'}, {label: ' open ', action: 'open', fg: 'cyan'}, {label: ' claude ', action: 'review', fg: 'purple'}]
 }
 
 function Button({label, color, pressed, onPress}: {label: string; color: string; pressed: boolean; onPress: () => void}) {
@@ -156,10 +158,50 @@ const CompactCard = memo(function CompactCard({pr, tab, selected, onSelect}: {pr
 	)
 })
 
-export function Tui({repos, interval}: {repos: string[]; interval: number}) {
+interface Review { pr: PR; status: 'running' | 'done' | 'error'; text: string; error: string; scroll: number; run?: ReviewRun }
+
+function wrapLines(text: string, width: number): string[] {
+	const out: string[] = []
+	for (const raw of text.split('\n')) {
+		let line = raw.replace(/\t/g, '    ')
+		if (line.length === 0) { out.push(''); continue }
+		while (line.length > width) {
+			let cut = line.lastIndexOf(' ', width)
+			if (cut < width * 0.6) cut = width
+			out.push(line.slice(0, cut))
+			line = line.slice(cut).trimStart()
+		}
+		out.push(line)
+	}
+	return out
+}
+
+function ReviewPane({review, width, height}: {review: Review; width: number; height: number}) {
+	const lines = useMemo(() => wrapLines(review.text, Math.max(20, width - 4)), [review.text, width])
+	const maxScroll = Math.max(0, lines.length - height)
+	const start = review.status === 'running' && review.scroll === 0 ? maxScroll : Math.min(review.scroll, maxScroll)
+	const visible = lines.slice(start, start + height)
+	return (
+		<box flexDirection="column" flexGrow={1} paddingLeft={1} paddingRight={1}>
+			<text {...LINE}>
+				<span attributes={TextAttributes.BOLD}>Claude review · </span>
+				<span attributes={TextAttributes.BOLD}><a href={review.pr.url}>{review.pr.title}</a></span>
+				<span fg={GRAY}>  #{review.pr.number}</span>
+				{review.status === 'running' ? <span fg={AMBER}>  <Spinner /> reviewing…</span> : review.status === 'error' ? <span fg={DANGER}>  ✗ {review.error}</span> : <span fg={SUCCESS}>  ✓ done</span>}
+				{lines.length > height ? <span fg={GRAY}>  · lines {start + 1}–{Math.min(lines.length, start + height)} of {lines.length}</span> : null}
+			</text>
+			<text fg={GRAY} {...LINE}>{'─'.repeat(Math.max(0, width - 4))}</text>
+			{visible.map((l, i) => <text key={start + i} {...LINE}>{l || ' '}</text>)}
+		</box>
+	)
+}
+
+export function Tui({repos, interval, repoDirs}: {repos: string[]; interval: number; repoDirs: Record<string, string>}) {
 	const renderer = useRenderer()
 	const {width: cols, height: rows} = useTerminalDimensions()
 	const [tab, setTab] = useState<Tab>('mine')
+	const [reviews, setReviews] = useState<Record<string, Review>>({})
+	const [view, setView] = useState<string>('mine')
 	const [data, setData] = useState<Record<Tab, PR[] | null>>({mine: null, review: null})
 	const loadedAt = useRef<Record<Tab, number>>({mine: 0, review: 0})
 	const [loading, setLoading] = useState(false)
@@ -236,6 +278,15 @@ export function Tui({repos, interval}: {repos: string[]; interval: number}) {
 			return
 		}
 		if (action === 'open') { await openInBrowser(pr); return }
+		if (action === 'review') {
+			const id = `claude:${pr.number}`
+			setReviews(r => { r[id]?.run?.abort(); return {...r, [id]: {pr, status: 'running', text: '', error: '', scroll: 0}} })
+			setView(id)
+			const run = runClaudeReview(pr, repoDirs, text => setReviews(r => r[id] ? {...r, [id]: {...r[id], text}} : r))
+			setReviews(r => r[id] ? {...r, [id]: {...r[id], run}} : r)
+			run.done.then(({exitCode, error}) => setReviews(r => r[id] ? {...r, [id]: {...r[id], status: exitCode === 0 ? 'done' : 'error', error, scroll: 0}} : r))
+			return
+		}
 		if (action === 'copyfail') {
 			const ok = await copy(failureReport(pr))
 			setBusy(b => ({...b, [key]: ok ? '✓ Copied failure report' : '✗ pbcopy failed'}))
@@ -276,7 +327,7 @@ export function Tui({repos, interval}: {repos: string[]; interval: number}) {
 			if (!me || me.ci !== 'FAILURE') break
 		}
 		setBusy(b => { const {[key]: _, ...rest} = b; return rest })
-	}, [repos, refresh, press])
+	}, [repos, refresh, press, repoDirs])
 
 	const list = data[tab] ?? []
 	const layout = useMemo(() => {
@@ -299,7 +350,7 @@ export function Tui({repos, interval}: {repos: string[]; interval: number}) {
 
 	const sel = selected[tab] === null ? null : Math.min(selected[tab]!, Math.max(0, list.length - 1))
 	const selPr: PR | undefined = sel === null ? undefined : list[sel]
-	const switchTab = (t: Tab) => { press(`tab:${t}`); setTab(t) }
+	const switchTab = (t: Tab) => { press(`tab:${t}`); setTab(t); setView(t) }
 	const select = useCallback((i: number | null) => {
 		setSelected(s => ({...s, [tab]: i}))
 		if (i !== null) setPage(p => ({...p, [tab]: Math.floor(i / layout.perPage)}))
@@ -331,7 +382,34 @@ export function Tui({repos, interval}: {repos: string[]; interval: number}) {
 		if (key.name === 'q' || (key.ctrl && key.name === 'c')) { renderer.destroy(); process.exit(0) }
 		if (key.name === 'r') { refresh(tab); return }
 		if (key.name === 'v') { press('compact'); setCompact(c => !c); return }
-		if (key.name === 'tab' || key.name === 't') { switchTab(tab === 'mine' ? 'review' : 'mine'); return }
+		const views = ['mine', 'review', ...Object.keys(reviews)]
+		if (key.name === 'tab' || key.name === 't') {
+			const next = views[(views.indexOf(view) + (key.shift ? views.length - 1 : 1)) % views.length]
+			if (next === 'mine' || next === 'review') switchTab(next as Tab)
+			setView(next)
+			return
+		}
+		if (view.startsWith('claude:')) {
+			const rv = reviews[view]
+			if (key.name === 'x') {
+				rv?.run?.abort()
+				const idx = views.indexOf(view)
+				setReviews(r => { const {[view]: _, ...rest} = r; return rest })
+				const remaining = views.filter(v => v !== view)
+				setView(remaining[Math.min(idx, remaining.length - 1)] ?? 'mine')
+				return
+			}
+			if (key.name === 'escape') { setView(tab); return }
+			const scrollBy = (n: number) => setReviews(r => r[view] ? {...r, [view]: {...r[view], scroll: Math.max(0, r[view].scroll + n)}} : r)
+			if (key.name === 'down' || key.name === 'j') { scrollBy(1); return }
+			if (key.name === 'up' || key.name === 'k') { scrollBy(-1); return }
+			if (key.name === 'pagedown' || key.name === ']') { scrollBy(rows - CHROME_H - 2); return }
+			if (key.name === 'pageup' || key.name === '[') { scrollBy(-(rows - CHROME_H - 2)); return }
+			if (key.name === 'home') { setReviews(r => r[view] ? {...r, [view]: {...r[view], scroll: 0}} : r); return }
+			if (key.name === 'end') { setReviews(r => r[view] ? {...r, [view]: {...r[view], scroll: 1e9}} : r); return }
+			if (key.name === 'o' || key.name === 'return') { if (rv) openInBrowser(rv.pr); return }
+			return
+		}
 		if (key.name === 'escape') { select(null); return }
 		if (!list.length) return
 		const last = list.length - 1
@@ -341,7 +419,7 @@ export function Tui({repos, interval}: {repos: string[]; interval: number}) {
 		if (key.name in nav) { select(sel === null ? current * layout.perPage : Math.max(0, Math.min(last, sel + nav[key.name]))); return }
 		if (key.name === 'home') { select(0); return }
 		if (key.name === 'end') { select(last); return }
-		const map: Record<string, Action | undefined> = {n: 'nudge', c: 'rerun', a: 'approve', o: 'open', return: 'open', m: 'merge', f: 'copyfail'}
+		const map: Record<string, Action | undefined> = {n: 'nudge', c: 'rerun', a: 'approve', o: 'open', return: 'open', m: 'merge', f: 'copyfail', i: 'review'}
 		const action = map[key.name]
 		if (selPr && action && buttonsFor(selPr, tab).some(b => b.action === action)) act(selPr, action)
 	})
@@ -349,7 +427,7 @@ export function Tui({repos, interval}: {repos: string[]; interval: number}) {
 	const red = list.filter(p => p.ci === 'FAILURE' || p.ci === 'ERROR').length
 	const unresolved = list.filter(p => p.unresolved.length > 0).length
 	const waiting = list.filter(p => p.pendingTeams.length + p.pendingUsers.length > 0).length
-	const hint = tab === 'mine' ? 'n nudge · c rerun CI · f copy fail · m merge · o open' : 'a approve · o open'
+	const hint = view.startsWith('claude:') ? '↑↓ PgUp/PgDn scroll · o open PR · x close tab · Esc back' : tab === 'mine' ? 'n nudge · c rerun CI · f copy fail · m merge · o open · i claude review' : 'a approve · o open · i claude review'
 	const tabLabel = (t: Tab) => {
 		const name = t === 'mine' ? 'Mine' : 'To review'
 		return t === tab && data[t] ? ` ${name} ${data[t]!.length} ` : ` ${name} `
@@ -358,8 +436,11 @@ export function Tui({repos, interval}: {repos: string[]; interval: number}) {
 	return (
 		<box flexDirection="column" width={cols} height={rows}>
 			<box flexDirection="row">
-				<TabButton label={tabLabel('mine')} color={ACCENT} active={tab === 'mine'} flash={pressed === 'tab:mine'} onPress={() => switchTab('mine')} />
-				<box marginLeft={2}><TabButton label={tabLabel('review')} color={PURPLE} active={tab === 'review'} flash={pressed === 'tab:review'} onPress={() => switchTab('review')} /></box>
+				<TabButton label={tabLabel('mine')} color={ACCENT} active={view === 'mine'} flash={pressed === 'tab:mine'} onPress={() => switchTab('mine')} />
+				<box marginLeft={2}><TabButton label={tabLabel('review')} color={PURPLE} active={view === 'review'} flash={pressed === 'tab:review'} onPress={() => switchTab('review')} /></box>
+				{Object.entries(reviews).map(([id, rv]) => (
+					<box key={id} marginLeft={2}><TabButton label={` ${rv.status === 'running' ? '◌' : rv.status === 'error' ? '✗' : '✓'} #${rv.pr.number} `} color={PURPLE} active={view === id} flash={pressed === `tab:${id}`} onPress={() => { press(`tab:${id}`); setView(id) }} /></box>
+				))}
 				{tab === 'mine' ? <box marginLeft={4}><Button label=" nudge all " color={BUTTON_BG.cyan} pressed={pressed === 'nudgeAll'} onPress={() => { press('nudgeAll'); nudgeAll() }} /></box> : null}
 				{list.some(pr => pr.ci === 'FAILURE' || pr.ci === 'ERROR' || pr.unresolved.length > 0 || pr.mergeable === 'CONFLICTING') ? <box marginLeft={1}><Button label=" copy all fails " color={BUTTON_BG.red} pressed={pressed === 'copyFailAll'} onPress={() => { press('copyFailAll'); copyFailAll() }} /></box> : null}
 				<box marginLeft={1}><Button label={compact ? ' full view ' : ' compact '} color={'#c9c9c9'} pressed={pressed === 'compact'} onPress={() => { press('compact'); setCompact(c => !c) }} /></box>
@@ -377,6 +458,7 @@ export function Tui({repos, interval}: {repos: string[]; interval: number}) {
 				</text>
 			</box>
 			{retryAt ? <text fg={AMBER} {...LINE}>GitHub rate limit hit · retrying at {new Date(retryAt).toTimeString().slice(0, 8)}</text> : error ? <text fg={DANGER} {...LINE}>{error}</text> : null}
+			{view.startsWith('claude:') && reviews[view] ? <ReviewPane review={reviews[view]} width={cols} height={Math.max(1, rows - CHROME_H - 2)} /> : (
 			<box flexDirection="column" flexGrow={1}>
 				{cardRows.map((row, ri) => (
 					<box key={ri} flexDirection="row">
@@ -390,6 +472,7 @@ export function Tui({repos, interval}: {repos: string[]; interval: number}) {
 					</box>
 				))}
 			</box>
+			)}
 			<box flexDirection="column" height={2}>
 				<text fg={GRAY} {...LINE}>
 					<span attributes={TextAttributes.BOLD}>↑↓←→</span> select · <span attributes={TextAttributes.BOLD}>Esc</span> clear · {hint}{tab === 'mine' ? <span> · <span attributes={TextAttributes.BOLD}>N</span> nudge all</span> : null} · <span attributes={TextAttributes.BOLD}>F</span> copy all fails · <span attributes={TextAttributes.BOLD}>PgUp/PgDn</span> page · <span attributes={TextAttributes.BOLD}>Tab</span> switch · <span attributes={TextAttributes.BOLD}>v</span> {compact ? 'full' : 'compact'} · <span attributes={TextAttributes.BOLD}>r</span> refresh · <span attributes={TextAttributes.BOLD}>q</span> quit · every {interval}s

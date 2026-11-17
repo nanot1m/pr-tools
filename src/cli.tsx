@@ -23,8 +23,8 @@ for (let i = 0; i < args.length; i++) {
 		console.log(`prs [owner/repo ...] [--json] [--interval SECONDS]
 prs nudge [PR]    copy a Slack review request to the clipboard
 prs rerun <PR>    rerun the failed CI jobs of a PR
-config: ${CONFIG_PATH}  {"repos": ["owner/repo"], "interval": 120}
-keys in the UI: arrows select, Esc clear, n nudge, N nudge all, c rerun CI, f copy fail, m merge, o open, Tab switch, v compact view, r refresh, q quit`)
+config: ${CONFIG_PATH}  {"repos": ["owner/repo"], "interval": 120, "repoDirs": {"owner/repo": "/path/to/checkout"}}
+keys in the UI: arrows select, Esc clear, n nudge, N nudge all, c rerun CI, f copy fail, m merge, o open, i claude review (opens a review tab; x closes it), Tab switch, v compact view, r refresh, q quit`)
 		process.exit(0)
 	} else if (/^[\w.-]+\/[\w.-]+$/.test(a)) repos.push(a)
 }
@@ -58,5 +58,5 @@ if (json) {
 	process.exit(0)
 } else {
 	const renderer = await createCliRenderer({useMouse: true, exitOnCtrlC: true, screenMode: 'alternate-screen', targetFps: 30})
-	createRoot(renderer).render(<Tui repos={repos} interval={interval} />)
+	createRoot(renderer).render(<Tui repos={repos} interval={interval} repoDirs={config.repoDirs} />)
 }
