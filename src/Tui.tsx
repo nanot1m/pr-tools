@@ -138,6 +138,11 @@ export function Tui({repos, interval}: {repos: string[]; interval: number}) {
 	const [loading, setLoading] = useState(false)
 	const [error, setError] = useState<string | null>(null)
 	const [toast, setToast] = useState<string | null>(null)
+	useEffect(() => {
+		if (toast === null) return
+		const t = setTimeout(() => setToast(null), 6000)
+		return () => clearTimeout(t)
+	}, [toast])
 	const [selected, setSelected] = useState<Record<Tab, number | null>>({mine: null, review: null})
 	const [busy, setBusy] = useState<Record<string, string>>({})
 	const [updatedAt, setUpdatedAt] = useState<Date | null>(null)
