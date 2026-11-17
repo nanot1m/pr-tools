@@ -1,6 +1,6 @@
 /** @jsxImportSource @opentui/react */
 import React, {memo, useCallback, useEffect, useMemo, useRef, useState} from 'react'
-import {TextAttributes} from '@opentui/core'
+import {RGBA, SyntaxStyle, TextAttributes, type ScrollBoxRenderable} from '@opentui/core'
 import {useAnimationTick, useKeyboard, useRenderer, useTerminalDimensions} from '@opentui/react'
 import {approve, failureReport, fetchForReview, fetchPRs, merge, openInBrowser, RateLimitError, rerunFailed, type PR} from './github'
 import {batchNudgeMessages, copy, nudgeMessage} from './nudge'
@@ -160,27 +160,30 @@ const CompactCard = memo(function CompactCard({pr, tab, selected, onSelect}: {pr
 
 interface Review { pr: PR; status: 'running' | 'done' | 'error'; text: string; error: string; scroll: number; run?: ReviewRun }
 
-function wrapLines(text: string, width: number): string[] {
-	const out: string[] = []
-	for (const raw of text.split('\n')) {
-		let line = raw.replace(/\t/g, '    ')
-		if (line.length === 0) { out.push(''); continue }
-		while (line.length > width) {
-			let cut = line.lastIndexOf(' ', width)
-			if (cut < width * 0.6) cut = width
-			out.push(line.slice(0, cut))
-			line = line.slice(cut).trimStart()
-		}
-		out.push(line)
-	}
-	return out
+function useMarkdownStyle(): SyntaxStyle {
+	const renderer = useRenderer()
+	const style = useMemo(() => SyntaxStyle.fromStyles({
+		default: {},
+		'markup.heading': {fg: RGBA.fromHex(ACCENT), bold: true},
+		'markup.heading.1': {fg: RGBA.fromHex(ACCENT), bold: true, underline: true},
+		'markup.heading.2': {fg: RGBA.fromHex(ACCENT), bold: true},
+		'markup.strong': {bold: true},
+		'markup.italic': {italic: true},
+		'markup.raw': {fg: RGBA.fromHex('#e0b060')},
+		'markup.raw.block': {fg: RGBA.fromHex('#e0b060')},
+		'markup.list': {fg: RGBA.fromHex(PURPLE), bold: true},
+		'markup.quote': {fg: RGBA.fromHex(GRAY), italic: true},
+		'markup.link': {fg: RGBA.fromHex(ACCENT), underline: true},
+		'markup.link.url': {fg: RGBA.fromHex(ACCENT), underline: true},
+		'markup.link.label': {fg: RGBA.fromHex(ACCENT)},
+		'markup.strikethrough': {strikethrough: true},
+	}, renderer.nativeScene), [renderer])
+	useEffect(() => () => style.destroy(), [style])
+	return style
 }
 
-function ReviewPane({review, width, height}: {review: Review; width: number; height: number}) {
-	const lines = useMemo(() => wrapLines(review.text, Math.max(20, width - 4)), [review.text, width])
-	const maxScroll = Math.max(0, lines.length - height)
-	const start = review.status === 'running' && review.scroll === 0 ? maxScroll : Math.min(review.scroll, maxScroll)
-	const visible = lines.slice(start, start + height)
+const ReviewPane = React.forwardRef<ScrollBoxRenderable, {review: Review; width: number}>(function ReviewPane({review, width}, ref) {
+	const style = useMarkdownStyle()
 	return (
 		<box flexDirection="column" flexGrow={1} paddingLeft={1} paddingRight={1}>
 			<text {...LINE}>
@@ -188,13 +191,14 @@ function ReviewPane({review, width, height}: {review: Review; width: number; hei
 				<span attributes={TextAttributes.BOLD}><a href={review.pr.url}>{review.pr.title}</a></span>
 				<span fg={GRAY}>  #{review.pr.number}</span>
 				{review.status === 'running' ? <span fg={AMBER}>  <Spinner /> reviewing…</span> : review.status === 'error' ? <span fg={DANGER}>  ✗ {review.error}</span> : <span fg={SUCCESS}>  ✓ done</span>}
-				{lines.length > height ? <span fg={GRAY}>  · lines {start + 1}–{Math.min(lines.length, start + height)} of {lines.length}</span> : null}
 			</text>
 			<text fg={GRAY} {...LINE}>{'─'.repeat(Math.max(0, width - 4))}</text>
-			{visible.map((l, i) => <text key={start + i} {...LINE}>{l || ' '}</text>)}
+			<scrollbox ref={ref} flexGrow={1} scrollY stickyScroll={review.status === 'running'} stickyStart="bottom" focused>
+				<markdown content={review.text || (review.status === 'running' ? '_Waiting for Claude…_' : '')} syntaxStyle={style} streaming={review.status === 'running'} />
+			</scrollbox>
 		</box>
 	)
-}
+})
 
 export function Tui({repos, interval, repoDirs}: {repos: string[]; interval: number; repoDirs: Record<string, string>}) {
 	const renderer = useRenderer()
@@ -202,6 +206,7 @@ export function Tui({repos, interval, repoDirs}: {repos: string[]; interval: num
 	const [tab, setTab] = useState<Tab>('mine')
 	const [reviews, setReviews] = useState<Record<string, Review>>({})
 	const [view, setView] = useState<string>('mine')
+	const reviewScroll = useRef<ScrollBoxRenderable>(null)
 	const [data, setData] = useState<Record<Tab, PR[] | null>>({mine: null, review: null})
 	const loadedAt = useRef<Record<Tab, number>>({mine: 0, review: 0})
 	const [loading, setLoading] = useState(false)
@@ -400,13 +405,14 @@ export function Tui({repos, interval, repoDirs}: {repos: string[]; interval: num
 				return
 			}
 			if (key.name === 'escape') { setView(tab); return }
-			const scrollBy = (n: number) => setReviews(r => r[view] ? {...r, [view]: {...r[view], scroll: Math.max(0, r[view].scroll + n)}} : r)
-			if (key.name === 'down' || key.name === 'j') { scrollBy(1); return }
-			if (key.name === 'up' || key.name === 'k') { scrollBy(-1); return }
-			if (key.name === 'pagedown' || key.name === ']') { scrollBy(rows - CHROME_H - 2); return }
-			if (key.name === 'pageup' || key.name === '[') { scrollBy(-(rows - CHROME_H - 2)); return }
-			if (key.name === 'home') { setReviews(r => r[view] ? {...r, [view]: {...r[view], scroll: 0}} : r); return }
-			if (key.name === 'end') { setReviews(r => r[view] ? {...r, [view]: {...r[view], scroll: 1e9}} : r); return }
+			const sb = reviewScroll.current
+			const page = Math.max(1, rows - CHROME_H - 3)
+			if (key.name === 'down' || key.name === 'j') { sb?.scrollBy(1); return }
+			if (key.name === 'up' || key.name === 'k') { sb?.scrollBy(-1); return }
+			if (key.name === 'pagedown' || key.name === ']') { sb?.scrollBy(page); return }
+			if (key.name === 'pageup' || key.name === '[') { sb?.scrollBy(-page); return }
+			if (key.name === 'home') { sb?.scrollTo(0); return }
+			if (key.name === 'end') { sb?.scrollTo(1e9); return }
 			if (key.name === 'o' || key.name === 'return') { if (rv) openInBrowser(rv.pr); return }
 			return
 		}
@@ -458,7 +464,7 @@ export function Tui({repos, interval, repoDirs}: {repos: string[]; interval: num
 				</text>
 			</box>
 			{retryAt ? <text fg={AMBER} {...LINE}>GitHub rate limit hit · retrying at {new Date(retryAt).toTimeString().slice(0, 8)}</text> : error ? <text fg={DANGER} {...LINE}>{error}</text> : null}
-			{view.startsWith('claude:') && reviews[view] ? <ReviewPane review={reviews[view]} width={cols} height={Math.max(1, rows - CHROME_H - 2)} /> : (
+			{view.startsWith('claude:') && reviews[view] ? <ReviewPane ref={reviewScroll} review={reviews[view]} width={cols} /> : (
 			<box flexDirection="column" flexGrow={1}>
 				{cardRows.map((row, ri) => (
 					<box key={ri} flexDirection="row">

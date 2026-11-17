@@ -1,7 +1,7 @@
 import type {PR} from './github'
 
 export function reviewPrompt(pr: PR): string {
-	return `Review pull request #${pr.number} in ${pr.repo} (${pr.url}). Use gh to read the PR description, the full diff and any existing review comments. Start with a short overview: what changes and why, in a few sentences. Then list review suggestions ordered by severity, each with a file reference and a one-line reason. Plain text, no markdown tables. Do not change any files.`
+	return `Review pull request #${pr.number} in ${pr.repo} (${pr.url}). Use gh to read the PR description, the full diff and any existing review comments. Start with a short overview: what changes and why, in a few sentences. Then list review suggestions ordered by severity, each with a file reference and a one-line reason. Use markdown: a heading per section, bullet lists, inline code for identifiers and file references; no tables. Do not change any files.`
 }
 
 export function resolveRepoDir(pr: PR, repoDirs: Record<string, string>): string {
