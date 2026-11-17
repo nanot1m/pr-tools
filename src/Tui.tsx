@@ -9,6 +9,8 @@ const GAP = 1
 const MIN_CARD = 64
 const MAX_CARD = 110
 const CARD_H = 7
+const COMPACT_W = 12
+const COMPACT_H = 6
 const CHROME_H = 1 + 3 + 3
 
 type Tab = 'mine' | 'review'
@@ -108,6 +110,25 @@ const Card = memo(function Card({pr, width, tab, busy, selected, onAction, onSel
 	)
 })
 
+const CompactCard = memo(function CompactCard({pr, tab, selected, onSelect}: {pr: PR; tab: Tab; selected: boolean; onSelect: (pr: PR) => void}) {
+	const color = cardColor(pr)
+	const marks = [
+		pr.unresolved.length > 0 ? `✎${pr.unresolved.length}` : '',
+		pr.mergeable === 'CONFLICTING' ? '⚡' : '',
+		pr.inMergeQueue ? 'Q' : pr.autoMerge ? 'A' : '',
+		pr.isDraft ? 'D' : '',
+	].filter(Boolean).join(' ')
+	const pending = pr.pendingTeams.length + pr.pendingUsers.length
+	return (
+		<box flexDirection="column" border borderStyle={selected ? 'double' : 'rounded'} borderColor={color} width={COMPACT_W} height={COMPACT_H} paddingLeft={1} onMouseDown={() => onSelect(pr)}>
+			<text {...LINE}><span fg={color}>{ciLabel(pr).glyph} </span><span attributes={TextAttributes.BOLD}><a href={pr.url}>#{pr.number}</a></span></text>
+			<text {...LINE}>{marks ? <span fg={color}>{marks}</span> : <span fg={GRAY}>·</span>}</text>
+			<text {...LINE}>{tab === 'mine' && pr.approvals.length > 0 ? <span fg="green">✓ {pr.approvals.length} </span> : null}{pending > 0 ? <span fg={AMBER}>◌ {pending}</span> : null}</text>
+			<text {...LINE}><span fg={GRAY}>{ago(pr.updatedAt)}</span></text>
+		</box>
+	)
+})
+
 export function Tui({repos, interval}: {repos: string[]; interval: number}) {
 	const renderer = useRenderer()
 	const {width: cols, height: rows} = useTerminalDimensions()
@@ -121,6 +142,7 @@ export function Tui({repos, interval}: {repos: string[]; interval: number}) {
 	const [busy, setBusy] = useState<Record<string, string>>({})
 	const [updatedAt, setUpdatedAt] = useState<Date | null>(null)
 	const [page, setPage] = useState<Record<Tab, number>>({mine: 0, review: 0})
+	const [compact, setCompact] = useState(false)
 
 	const [retryAt, setRetryAt] = useState<number | null>(null)
 	const inFlight = useRef<Set<Tab>>(new Set())
@@ -211,12 +233,17 @@ export function Tui({repos, interval}: {repos: string[]; interval: number}) {
 
 	const list = data[tab] ?? []
 	const layout = useMemo(() => {
+		if (compact) {
+			const n = Math.max(1, Math.floor((cols + GAP) / (COMPACT_W + GAP)))
+			const rowsFit = Math.max(1, Math.floor((rows - CHROME_H) / COMPACT_H))
+			return {n, w: COMPACT_W, perPage: n * rowsFit}
+		}
 		let n = Math.floor((cols + GAP) / (MIN_CARD + GAP))
 		n = Math.max(1, Math.min(3, n))
 		const w = Math.min(MAX_CARD, Math.max(50, Math.floor((cols - GAP * (n - 1)) / n)))
 		const rowsFit = Math.max(1, Math.floor((rows - CHROME_H) / CARD_H))
 		return {n, w, perPage: n * rowsFit}
-	}, [cols, rows])
+	}, [cols, rows, compact])
 	const pageCount = Math.max(1, Math.ceil(list.length / layout.perPage))
 	const current = Math.min(page[tab], pageCount - 1)
 	const visible = list.slice(current * layout.perPage, (current + 1) * layout.perPage)
@@ -256,6 +283,7 @@ export function Tui({repos, interval}: {repos: string[]; interval: number}) {
 		if (key.name === 'N' || (key.shift && key.name === 'n')) { if (tab === 'mine') nudgeAll(); return }
 		if (key.name === 'q' || (key.ctrl && key.name === 'c')) { renderer.destroy(); process.exit(0) }
 		if (key.name === 'r') { refresh(tab); return }
+		if (key.name === 'v') { setCompact(c => !c); return }
 		if (key.name === 'tab' || key.name === 't') { switchTab(tab === 'mine' ? 'review' : 'mine'); return }
 		if (key.name === 'escape') { select(null); return }
 		if (!list.length) return
@@ -287,6 +315,7 @@ export function Tui({repos, interval}: {repos: string[]; interval: number}) {
 				<box marginLeft={2} onMouseDown={() => switchTab('review')}><text fg={tab === 'review' ? '#ffffff' : '#d75fd7'} bg={tab === 'review' ? '#8700af' : undefined} attributes={TextAttributes.BOLD}>{tabLabel('review')}</text></box>
 				{tab === 'mine' ? <box marginLeft={4} onMouseDown={nudgeAll}><text fg="#000000" bg={BUTTON_BG.cyan} attributes={TextAttributes.BOLD}> nudge all </text></box> : null}
 				{list.some(pr => pr.ci === 'FAILURE' || pr.ci === 'ERROR' || pr.unresolved.length > 0 || pr.mergeable === 'CONFLICTING') ? <box marginLeft={1} onMouseDown={copyFailAll}><text fg="#000000" bg={BUTTON_BG.red} attributes={TextAttributes.BOLD}> copy all fails </text></box> : null}
+				<box marginLeft={1} onMouseDown={() => setCompact(c => !c)}><text fg="#000000" bg={GRAY} attributes={TextAttributes.BOLD}>{compact ? ' full view ' : ' compact '}</text></box>
 			</box>
 			<box border borderStyle="rounded" borderColor="blue" paddingLeft={1} paddingRight={1} height={3}>
 				<text {...LINE}>
@@ -306,7 +335,9 @@ export function Tui({repos, interval}: {repos: string[]; interval: number}) {
 					<box key={ri} flexDirection="row">
 						{row.map((pr, ci) => (
 							<box key={pr.url} marginLeft={ci > 0 ? GAP : 0}>
-								<Card pr={pr} width={layout.w} tab={tab} busy={busy[pr.url]} selected={pr === selPr} onAction={act} onSelect={selectPr} />
+								{compact
+									? <CompactCard pr={pr} tab={tab} selected={pr === selPr} onSelect={selectPr} />
+									: <Card pr={pr} width={layout.w} tab={tab} busy={busy[pr.url]} selected={pr === selPr} onAction={act} onSelect={selectPr} />}
 							</box>
 						))}
 					</box>
@@ -314,9 +345,9 @@ export function Tui({repos, interval}: {repos: string[]; interval: number}) {
 			</box>
 			<box flexDirection="column" height={2}>
 				<text fg={GRAY} {...LINE}>
-					<span attributes={TextAttributes.BOLD}>↑↓←→</span> select · <span attributes={TextAttributes.BOLD}>Esc</span> clear · {hint}{tab === 'mine' ? <span> · <span attributes={TextAttributes.BOLD}>N</span> nudge all</span> : null} · <span attributes={TextAttributes.BOLD}>F</span> copy all fails · <span attributes={TextAttributes.BOLD}>PgUp/PgDn</span> page · <span attributes={TextAttributes.BOLD}>Tab</span> switch · <span attributes={TextAttributes.BOLD}>r</span> refresh · <span attributes={TextAttributes.BOLD}>q</span> quit · every {interval}s
+					<span attributes={TextAttributes.BOLD}>↑↓←→</span> select · <span attributes={TextAttributes.BOLD}>Esc</span> clear · {hint}{tab === 'mine' ? <span> · <span attributes={TextAttributes.BOLD}>N</span> nudge all</span> : null} · <span attributes={TextAttributes.BOLD}>F</span> copy all fails · <span attributes={TextAttributes.BOLD}>PgUp/PgDn</span> page · <span attributes={TextAttributes.BOLD}>Tab</span> switch · <span attributes={TextAttributes.BOLD}>v</span> {compact ? 'full' : 'compact'} · <span attributes={TextAttributes.BOLD}>r</span> refresh · <span attributes={TextAttributes.BOLD}>q</span> quit · every {interval}s
 				</text>
-				<text fg="green" {...LINE}>{toast ?? ' '}</text>
+				<text fg="green" {...LINE}>{toast ?? (compact && selPr ? <span fg={cardColor(selPr)}>#{selPr.number} {selPr.title}{busy[selPr.url] ? `  ${busy[selPr.url]}` : ''}</span> : ' ')}</text>
 			</box>
 		</box>
 	)

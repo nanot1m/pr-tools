@@ -24,7 +24,7 @@ for (let i = 0; i < args.length; i++) {
 prs nudge [PR]    copy a Slack review request to the clipboard
 prs rerun <PR>    rerun the failed CI jobs of a PR
 config: ${CONFIG_PATH}  {"repos": ["owner/repo"], "interval": 120}
-keys in the UI: arrows select, Esc clear, n nudge, N nudge all, c rerun CI, f copy fail, m merge, o open, Tab switch, r refresh, q quit`)
+keys in the UI: arrows select, Esc clear, n nudge, N nudge all, c rerun CI, f copy fail, m merge, o open, Tab switch, v compact view, r refresh, q quit`)
 		process.exit(0)
 	} else if (/^[\w.-]+\/[\w.-]+$/.test(a)) repos.push(a)
 }
