@@ -252,6 +252,8 @@ export async function fetchPRs(repos: string[]): Promise<PR[]> {
 	return search([...base(repos), 'author:@me'].join(' '), me)
 }
 
+const MAX_REAL_TEAM_SIZE = 50
+
 export async function fetchForReview(repos: string[]): Promise<PR[]> {
 	const me = await getLogin()
 	const orgs = [...new Set(repos.map(r => r.split('/')[0]))]
@@ -259,13 +261,13 @@ export async function fetchForReview(repos: string[]): Promise<PR[]> {
 		search([...base(repos), 'review-requested:@me'].join(' '), me),
 		search([...base(repos), 'reviewed-by:@me'].join(' '), me),
 		Promise.all(orgs.map(async o => Promise.all((await getTeams(o)).map(t => getTeamMembers(o, t)))))
-			.then(sets => new Set(sets.flat().flatMap(m => [...m]))),
+			.then(sets => new Set(sets.flat().filter(m => m.size <= MAX_REAL_TEAM_SIZE).flatMap(m => [...m]))),
 	])
 	const seen = new Set<string>()
 	const results = [...requested, ...reviewed].filter(pr => !seen.has(pr.url) && seen.add(pr.url))
 	return results
 		.filter(pr => pr.author !== me && pr.myReview !== 'APPROVED' && !pr.isDraft)
-		.filter(pr => !pr.approvals.some(a => teammates.has(a)))
+		.filter(pr => pr.pendingUsers.includes(me) || !pr.approvals.some(a => teammates.has(a)))
 		.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
 }
 
